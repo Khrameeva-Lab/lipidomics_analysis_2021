@@ -1,0 +1,128 @@
+---
+title: "The Hitchhiker’s Guide to untargeted lipidomics analysis: Practical guidelines"
+author: "D. Smirnov, P. Mazin, M. Osetrova, E. Stekolshchikova, E. Khrameeva"
+date: "8/18/2021"
+output: rmarkdown::github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+
+## Package import
+```{r, results='hide', message=FALSE, warning=FALSE}
+library(xcms)
+library(ggplot2)
+library(DT)
+```
+
+
+## Data import
+```{r}
+#url <- "http://arcuda.skoltech.ru/~d.smirnov/sampledata.tar.gz"
+#download.file(url, destfile = 'sampledata.tar.gz')
+#untar('sampledata.tar.gz')
+```
+
+
+```{r}
+mzfiles <- list.files('sampledata/', recursive = TRUE, full.names = TRUE, pattern = '.mzML')
+group <- unlist(lapply(strsplit(mzfiles,"/"), function (x) x[[3]]))
+pd <- data.frame(sample_name = sub(basename(mzfiles), pattern = ".mzXML", replacement = "", fixed = TRUE), 
+                 sample_group = group, 
+                 stringsAsFactors = FALSE)
+```
+
+
+```{r}
+raw_data <- readMSData(files = mzfiles, 
+                       pdata = new("NAnnotatedDataFrame", pd), 
+                       mode = "onDisk", 
+                       msLevel = 1, 
+                       verbose = T, 
+                       centroided = T)
+```
+
+## Peak picking
+```{r}
+cwp <- CentWaveParam(peakwidth = c(9.5, 36),
+                     ppm = 11.5,
+                     noise = 0, 
+                     snthresh = 10, 
+                     mzdiff = -0.001, 
+                     prefilter = c(3, 100), 
+                     mzCenterFun = "wMean", 
+                     integrate = 1, 
+                     fitgauss = FALSE)
+```
+
+```{r, message=FALSE}
+xset <- findChromPeaks(raw_data, param = cwp)
+```
+
+## Peak alignment
+```{r}
+arp <- ObiwarpParam(distFun = "cor_opt", 
+                    binSize = 1, 
+                    response = 1, 
+                    gapInit = 0.32, 
+                    gapExtend = 2.688, 
+                    factorDiag = 2, 
+                    factorGap = 1,
+                    localAlignment = FALSE)
+```
+
+```{r, message=FALSE}
+xset <- adjustRtime(xset, param = arp)
+```
+
+## Peak grouping
+```{r}
+pdp <- PeakDensityParam(sampleGroups = xset$sample_group, 
+                        bw = 0.879999999999999, 
+                        binSize = 0.02412, 
+                        minFraction = 0.000001, 
+                        minSamples = 1, 
+                        maxFeatures = 50)
+```
+
+```{r}
+xset <- groupChromPeaks(xset, param = pdp)
+```
+
+## Selection of parameters for peak picking, alignment, and grouping
+
+
+## Imputation of missing values
+```{r}
+xset <- fillChromPeaks(xset)
+```
+
+## Data export
+```{r, message=FALSE}
+pks <- chromPeaks(xset)
+grs <- featureDefinitions(xset)
+mtx <- featureValues(xset, method="maxint", value="into", filled=T) 
+```
+
+## Filtering of peaks
+
+## Normalization
+
+
+## Software used
+```{r}
+sessionInfo()
+```
+
+
+
+
+
+
+
+
+

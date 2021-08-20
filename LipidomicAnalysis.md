@@ -12,6 +12,7 @@ D. Smirnov, P. Mazin, M. Osetrova, E. Stekolshchikova, E. Khrameeva
 library(xcms)
 library(ggplot2)
 library(DT)
+library(IPO)
 ```
 
 ## Data import
@@ -76,7 +77,10 @@ arp <- ObiwarpParam(distFun = "cor_opt",
 
 ``` r
 xset <- adjustRtime(xset, param = arp)
+plotAdjustedRtime(xset)
 ```
+
+![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-8-1.png)<!-- -->
 
 ## Peak grouping
 
@@ -96,6 +100,20 @@ xset <- groupChromPeaks(xset, param = pdp)
     ## Processing 145180 mz slices ... OK
 
 ## Selection of parameters for peak picking, alignment, and grouping
+
+``` r
+peakpickingParameters <- getDefaultXcmsSetStartingParams('centWave')
+peakpickingParameters$min_peakwidth = c(0,10)
+peakpickingParameters$max_peakwidth = c(10,30)
+peakpickingParameters$ppm = c(0,10)
+```
+
+``` r
+#resultPeakpicking <- optimizeXcmsSet(files = mzfiles, 
+#                                     params = peakpickingParameters, 
+#                                     nSlaves = 0, 
+#                                     subdir = NULL)
+```
 
 ## Imputation of missing values
 
@@ -140,47 +158,59 @@ sessionInfo()
     ## [8] methods   base     
     ## 
     ## other attached packages:
-    ##  [1] DT_0.18             ggplot2_3.3.5       xcms_3.12.0        
-    ##  [4] MSnbase_2.16.1      ProtGenerics_1.22.0 S4Vectors_0.28.1   
-    ##  [7] mzR_2.24.1          Rcpp_1.0.7          BiocParallel_1.24.1
-    ## [10] Biobase_2.50.0      BiocGenerics_0.36.1
+    ##  [1] IPO_1.16.0          CAMERA_1.46.0       rsm_2.10.2         
+    ##  [4] DT_0.18             ggplot2_3.3.5       xcms_3.12.0        
+    ##  [7] MSnbase_2.16.1      ProtGenerics_1.22.0 S4Vectors_0.28.1   
+    ## [10] mzR_2.24.1          Rcpp_1.0.7          BiocParallel_1.24.1
+    ## [13] Biobase_2.50.0      BiocGenerics_0.36.1
     ## 
     ## loaded via a namespace (and not attached):
-    ##  [1] MatrixGenerics_1.2.1        vsn_3.58.0                 
-    ##  [3] foreach_1.5.1               assertthat_0.2.1           
-    ##  [5] BiocManager_1.30.16         affy_1.68.0                
-    ##  [7] GenomeInfoDbData_1.2.4      yaml_2.2.1                 
-    ##  [9] robustbase_0.93-8           impute_1.64.0              
-    ## [11] pillar_1.6.2                lattice_0.20-44            
-    ## [13] glue_1.4.2                  limma_3.46.0               
-    ## [15] digest_0.6.27               GenomicRanges_1.42.0       
-    ## [17] RColorBrewer_1.1-2          XVector_0.30.0             
-    ## [19] colorspace_2.0-2            htmltools_0.5.1.1          
-    ## [21] preprocessCore_1.52.1       Matrix_1.3-4               
-    ## [23] plyr_1.8.6                  MALDIquant_1.20            
-    ## [25] XML_3.99-0.6                pkgconfig_2.0.3            
-    ## [27] zlibbioc_1.36.0             purrr_0.3.4                
-    ## [29] scales_1.1.1                RANN_2.6.1                 
-    ## [31] affyio_1.60.0               tibble_3.1.3               
-    ## [33] generics_0.1.0              IRanges_2.24.1             
-    ## [35] ellipsis_0.3.2              withr_2.4.2                
-    ## [37] SummarizedExperiment_1.20.0 MassSpecWavelet_1.56.0     
-    ## [39] magrittr_2.0.1              crayon_1.4.1               
-    ## [41] evaluate_0.14               ncdf4_1.17                 
-    ## [43] fansi_0.5.0                 doParallel_1.0.16          
-    ## [45] MASS_7.3-54                 tools_4.0.3                
-    ## [47] lifecycle_1.0.0             matrixStats_0.60.0         
-    ## [49] stringr_1.4.0               munsell_0.5.0              
-    ## [51] DelayedArray_0.16.3         pcaMethods_1.82.0          
-    ## [53] compiler_4.0.3              GenomeInfoDb_1.26.7        
-    ## [55] mzID_1.28.0                 rlang_0.4.11               
-    ## [57] grid_4.0.3                  RCurl_1.98-1.3             
-    ## [59] iterators_1.0.13            htmlwidgets_1.5.3          
-    ## [61] MsCoreUtils_1.2.0           bitops_1.0-7               
-    ## [63] rmarkdown_2.10              gtable_0.3.0               
-    ## [65] codetools_0.2-18            DBI_1.1.1                  
-    ## [67] R6_2.5.0                    knitr_1.33                 
-    ## [69] dplyr_1.0.7                 utf8_1.2.2                 
-    ## [71] stringi_1.7.3               vctrs_0.3.8                
-    ## [73] DEoptimR_1.0-9              tidyselect_1.1.1           
-    ## [75] xfun_0.25
+    ##  [1] bitops_1.0-7                matrixStats_0.60.0         
+    ##  [3] doParallel_1.0.16           RColorBrewer_1.1-2         
+    ##  [5] GenomeInfoDb_1.26.7         backports_1.2.1            
+    ##  [7] tools_4.0.3                 utf8_1.2.2                 
+    ##  [9] R6_2.5.0                    affyio_1.60.0              
+    ## [11] rpart_4.1-15                Hmisc_4.5-0                
+    ## [13] DBI_1.1.1                   colorspace_2.0-2           
+    ## [15] nnet_7.3-16                 withr_2.4.2                
+    ## [17] gridExtra_2.3               tidyselect_1.1.1           
+    ## [19] compiler_4.0.3              MassSpecWavelet_1.56.0     
+    ## [21] preprocessCore_1.52.1       graph_1.68.0               
+    ## [23] htmlTable_2.2.1             DelayedArray_0.16.3        
+    ## [25] checkmate_2.0.0             scales_1.1.1               
+    ## [27] DEoptimR_1.0-9              robustbase_0.93-8          
+    ## [29] affy_1.68.0                 RBGL_1.66.0                
+    ## [31] stringr_1.4.0               digest_0.6.27              
+    ## [33] foreign_0.8-81              rmarkdown_2.10             
+    ## [35] XVector_0.30.0              jpeg_0.1-9                 
+    ## [37] base64enc_0.1-3             pkgconfig_2.0.3            
+    ## [39] htmltools_0.5.1.1           MatrixGenerics_1.2.1       
+    ## [41] highr_0.9                   limma_3.46.0               
+    ## [43] htmlwidgets_1.5.3           rlang_0.4.11               
+    ## [45] rstudioapi_0.13             impute_1.64.0              
+    ## [47] generics_0.1.0              mzID_1.28.0                
+    ## [49] dplyr_1.0.7                 RCurl_1.98-1.3             
+    ## [51] magrittr_2.0.1              GenomeInfoDbData_1.2.4     
+    ## [53] Formula_1.2-4               MALDIquant_1.20            
+    ## [55] Matrix_1.3-4                munsell_0.5.0              
+    ## [57] fansi_0.5.0                 MsCoreUtils_1.2.0          
+    ## [59] lifecycle_1.0.0             vsn_3.58.0                 
+    ## [61] stringi_1.7.3               yaml_2.2.1                 
+    ## [63] MASS_7.3-54                 SummarizedExperiment_1.20.0
+    ## [65] zlibbioc_1.36.0             plyr_1.8.6                 
+    ## [67] grid_4.0.3                  crayon_1.4.1               
+    ## [69] lattice_0.20-44             splines_4.0.3              
+    ## [71] knitr_1.33                  pillar_1.6.2               
+    ## [73] igraph_1.2.6                GenomicRanges_1.42.0       
+    ## [75] codetools_0.2-18            XML_3.99-0.6               
+    ## [77] glue_1.4.2                  evaluate_0.14              
+    ## [79] latticeExtra_0.6-29         data.table_1.14.0          
+    ## [81] pcaMethods_1.82.0           BiocManager_1.30.16        
+    ## [83] png_0.1-7                   vctrs_0.3.8                
+    ## [85] foreach_1.5.1               gtable_0.3.0               
+    ## [87] RANN_2.6.1                  purrr_0.3.4                
+    ## [89] assertthat_0.2.1            xfun_0.25                  
+    ## [91] ncdf4_1.17                  survival_3.2-12            
+    ## [93] tibble_3.1.3                iterators_1.0.13           
+    ## [95] IRanges_2.24.1              cluster_2.1.2              
+    ## [97] ellipsis_0.3.2

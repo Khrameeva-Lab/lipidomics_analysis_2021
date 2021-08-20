@@ -17,6 +17,7 @@ knitr::opts_chunk$set(echo = TRUE)
 library(xcms)
 library(ggplot2)
 library(DT)
+library(IPO)
 ```
 
 
@@ -77,6 +78,7 @@ arp <- ObiwarpParam(distFun = "cor_opt",
 
 ```{r, message=FALSE}
 xset <- adjustRtime(xset, param = arp)
+plotAdjustedRtime(xset)
 ```
 
 ## Peak grouping
@@ -94,6 +96,19 @@ xset <- groupChromPeaks(xset, param = pdp)
 ```
 
 ## Selection of parameters for peak picking, alignment, and grouping
+```{r}
+peakpickingParameters <- getDefaultXcmsSetStartingParams('centWave')
+peakpickingParameters$min_peakwidth = c(0,10)
+peakpickingParameters$max_peakwidth = c(10,30)
+peakpickingParameters$ppm = c(0,10)
+```
+
+```{r}
+#resultPeakpicking <- optimizeXcmsSet(files = mzfiles, 
+#                                     params = peakpickingParameters, 
+#                                     nSlaves = 0, 
+#                                     subdir = NULL)
+```
 
 
 ## Imputation of missing values
@@ -109,6 +124,7 @@ mtx <- featureValues(xset, method="maxint", value="into", filled=T)
 ```
 
 ## Filtering of peaks
+
 
 ## Normalization
 

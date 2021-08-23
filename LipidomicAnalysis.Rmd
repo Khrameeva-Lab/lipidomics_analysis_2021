@@ -13,31 +13,37 @@ knitr::opts_chunk$set(echo = TRUE)
 
 
 ## Package import
+Loading the packages required for analysis
 ```{r, results='hide', message=FALSE, warning=FALSE}
 library(xcms)
 library(ggplot2)
 library(DT)
 library(IPO)
+library(mixOmics)
 ```
 
 
 ## Data import
+We will demonstrate the key concepts of LC-MS untargeted lipidomic analysis on the example of human fibroblasts dataset (ST001691 study from https://www.metabolomicsworkbench.org/). 
+The raw files converted into the .mzXML format can be downloaded in the current directory using the following code:
 ```{r}
 #url <- "http://arcuda.skoltech.ru/~d.smirnov/sampledata.tar.gz"
 #download.file(url, destfile = 'sampledata.tar.gz')
 #untar('sampledata.tar.gz')
 ```
 
-
+For convenience, raw MS files located in the `sampledata/` are organized into the two subfolders according the treatment groups. 
 ```{r}
-mzfiles <- list.files('sampledata/', recursive = TRUE, full.names = TRUE, pattern = '.mzML')
+mzfiles <- list.files('sampledata/', recursive = TRUE, full.names = TRUE, pattern = '.mzXML')
 group <- unlist(lapply(strsplit(mzfiles,"/"), function (x) x[[3]]))
 pd <- data.frame(sample_name = sub(basename(mzfiles), pattern = ".mzXML", replacement = "", fixed = TRUE), 
                  sample_group = group, 
                  stringsAsFactors = FALSE)
+
+knitr::kable(pd)
 ```
 
-
+Now .mzXML files can be imported via `readMSData` function
 ```{r}
 raw_data <- readMSData(files = mzfiles, 
                        pdata = new("NAnnotatedDataFrame", pd), 
@@ -48,6 +54,7 @@ raw_data <- readMSData(files = mzfiles,
 ```
 
 ## Peak picking
+Feature detection `CentWave` algorithm based on continuous wavelet transformation allows to distinguish lipid peaks from background noise. To perform peak calling we need to set up CentWave parameters first.
 ```{r}
 cwp <- CentWaveParam(peakwidth = c(9.5, 36),
                      ppm = 11.5,
@@ -60,6 +67,7 @@ cwp <- CentWaveParam(peakwidth = c(9.5, 36),
                      fitgauss = FALSE)
 ```
 
+Once the parameters are set one can proceed to chromatographic peak detection using `findChromPeaks` function.
 ```{r, message=FALSE}
 xset <- findChromPeaks(raw_data, param = cwp)
 ```
@@ -78,7 +86,6 @@ arp <- ObiwarpParam(distFun = "cor_opt",
 
 ```{r, message=FALSE}
 xset <- adjustRtime(xset, param = arp)
-plotAdjustedRtime(xset)
 ```
 
 ## Peak grouping
@@ -117,17 +124,58 @@ xset <- fillChromPeaks(xset)
 ```
 
 ## Data export
+
 ```{r, message=FALSE}
 pks <- chromPeaks(xset)
 grs <- featureDefinitions(xset)
 mtx <- featureValues(xset, method="maxint", value="into", filled=T) 
+
+knitr::kable(head(mtx))
 ```
 
 ## Filtering of peaks
+Removing peaks with NaN
+```{r, message=FALSE}
+th <- 0.3
+```
 
+```{r, message=FALSE}
+peaks.nas <- apply(mtx, 1, function (x) sum(is.na(x)))
+mtx <- mtx[(peaks.nas/ncol(mtx)) < th, ]
+```
 
 ## Normalization
 
+
+
+## Downstream analysis
+
+## Principal Component Analysis (PCA)
+
+```{r, message=FALSE}
+pca <- prcomp(t(na.omit(mtx)), center = TRUE, scale. = TRUE)
+```
+
+```{r, message=FALSE}
+Y <- pd$sample_group 
+```
+
+```{r, message=FALSE}
+pca.data <- data.frame(PC1 = pca$x[, 1], PC2 = pca$x[, 2], class = Y)
+ggplot(data = pca.data, aes_string(x = "PC1", y = "PC2", color = "class")) + geom_point()
+```
+
+## Partial Least-Squares Discriminant Analysis (PLS-DA)
+```{r, message=FALSE}
+X <- t(na.omit(mtx))
+Y <- as.factor(Y)
+plsda.model <- plsda(X, Y, ncomp = 2)
+plotIndiv(plsda.model, ind.names = FALSE, legend=TRUE, ellipse = TRUE)
+```
+
+```{r, message=FALSE}
+plsda.contributions <- selectVar(plsda.model, comp = 1)$value
+```
 
 ## Software used
 ```{r}

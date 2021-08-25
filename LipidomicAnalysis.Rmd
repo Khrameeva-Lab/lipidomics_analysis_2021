@@ -2,7 +2,10 @@
 title: "The Hitchhiker’s Guide to untargeted lipidomics analysis: Practical guidelines"
 author: "D. Smirnov, P. Mazin, M. Osetrova, E. Stekolshchikova, E. Khrameeva"
 date: "8/18/2021"
-output: rmarkdown::github_document
+output: 
+  github_document:
+    pandoc_args: "--webtex"
+
 ---
 
 ```{r setup, include=FALSE}
@@ -10,6 +13,15 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ## Introduction
+Here we present step-by-step guide to bioinformatic analysis of untargeted LS-MS lipidomic data. This manual reproduces the key steps described in the manuscript:
+
+* Data importing
+
+* Lipid signal quantification (peak peaking, peak alignment, peak grouping and abundance quantification)
+
+* Filtering and normalization
+
+* Visualization
 
 
 ## Package import
@@ -103,6 +115,7 @@ xset <- groupChromPeaks(xset, param = pdp)
 ```
 
 ## Selection of parameters for peak picking, alignment, and grouping
+In the code sections above we provide parameters optimized for 
 ```{r}
 peakpickingParameters <- getDefaultXcmsSetStartingParams('centWave')
 peakpickingParameters$min_peakwidth = c(0,10)
@@ -110,6 +123,7 @@ peakpickingParameters$max_peakwidth = c(10,30)
 peakpickingParameters$ppm = c(0,10)
 ```
 
+Please note that optimizing peak calling parameters with `optimizeXcmsSet` function is a quite computationally intensive operation. For simplicity and saving time, in the sections above we used already optimized parameters but ...
 ```{r}
 #resultPeakpicking <- optimizeXcmsSet(files = mzfiles, 
 #                                     params = peakpickingParameters, 
@@ -117,8 +131,24 @@ peakpickingParameters$ppm = c(0,10)
 #                                     subdir = NULL)
 ```
 
+```{r}
+#optimizedXcmsSetObject <- resultPeakpicking$best_settings$xset
+```
+
+```{r}
+#retcorGroupParameters <- getDefaultRetGroupStartingParams()
+#resultRetcorGroup <- optimizeRetGroup(xset = optimizedXcmsSetObject, 
+#                                      params = retcorGroupParameters,
+#                                      nSlaves = 0,
+#                                      subdir = NULL)
+
+#writeRScript(resultPeakpicking$best_settings$parameters, 
+#             resultRetcorGroup$best_settings, 1)
+
+```
 
 ## Imputation of missing values
+Unfortunately, peak peaking algorithm may produces a sufficient numbers of NaNs for those samples in which it wasn't able to identify MS peaks. We will try to impute missing chromatographic peaks within samples using `fillChromPeaks` function.
 ```{r}
 xset <- fillChromPeaks(xset)
 ```
@@ -134,38 +164,77 @@ knitr::kable(head(mtx))
 ```
 
 ## Filtering of peaks
-Removing peaks with NaN
+The code below removes all peaks that possess more than 30% of NaNs across samples.
 ```{r, message=FALSE}
 th <- 0.3
-```
-
-```{r, message=FALSE}
 peaks.nas <- apply(mtx, 1, function (x) sum(is.na(x)))
 mtx <- mtx[(peaks.nas/ncol(mtx)) < th, ]
 ```
 
 ## Normalization
 
+## Annotation
 
+We will load the 
+```{r}
+source("src/rt-mz.annotator.R")
+```
+
+```{r}
+grs <- as.data.frame(grs)
+grs.short <- dplyr::select(grs, mzmed, rtmed)
+grs.short$id <- paste(round(grs.short$mzmed, 3), round(grs.short$rtmed, 3), sep = '_')
+grs.short <- grs.short[,c(3,1,2)]
+colnames(grs.short) <- c('id', 'mz', 'rt')
+knitr::kable(head(grs.short))
+```
+
+```{r, message=FALSE, echo=FALSE}
+ann = annotateByMass(grs.short, db = LMDB)
+```
+
+```{r}
+knitr::kable(head(ann))
+```
 
 ## Downstream analysis
+ 
+### Principal Component Analysis (PCA)
+PCA projects original matrix of lipid abundances into low dimensional space. For a given matrix $X_{n \times m}$, where samples are rows and samples are columns, principal component vectors can be defined by finding eigenvectors of the following sample covariance matrix $S$:
 
-## Principal Component Analysis (PCA)
+![\begin{align*}
+S = \frac{1}{n-1} X^{T} C_n X
+\end{align*}
+](https://render.githubusercontent.com/render/math?math=%5Cdisplaystyle+%5Cbegin%7Balign%2A%7D%0AS+%3D+%5Cfrac%7B1%7D%7Bn-1%7D+X%5E%7BT%7D+C_n+X%0A%5Cend%7Balign%2A%7D%0A)
 
+where $C_n = I_n - \frac{1}{n}1_{n} 1^{T}_{n}$ is a centering matrix, $I_n$ represents an identity matrix of size $n$. 
+
+To calculate principal components we will use base R function `prcomp`
 ```{r, message=FALSE}
 pca <- prcomp(t(na.omit(mtx)), center = TRUE, scale. = TRUE)
 ```
 
+To visualize relationships between samples in a new low dimensional space we will plot PC1 and PC2 against each other.
+
 ```{r, message=FALSE}
 Y <- pd$sample_group 
-```
-
-```{r, message=FALSE}
 pca.data <- data.frame(PC1 = pca$x[, 1], PC2 = pca$x[, 2], class = Y)
-ggplot(data = pca.data, aes_string(x = "PC1", y = "PC2", color = "class")) + geom_point()
+ggplot(data = pca.data, aes_string(x = "PC1", y = "PC2", color = "class", shape = "class")) + 
+    geom_point(size = 4) +
+    theme_light()
 ```
 
-## Partial Least-Squares Discriminant Analysis (PLS-DA)
+### Partial Least-Squares Discriminant Analysis (PLS-DA)
+
+Mathematically, PLS-DA principal components can be obtained in a similar to PCA manner, as eigenvectors of a matrix of covariances between $X$ and $Y$: 
+
+![\begin{align*}
+S = S_{xy} S_{yx} = \frac{1}{n-1} X^{T} C_n Y \times \frac{1}{n-1} Y^{T} C_n X = \frac{1}{(n-1)^2} X^{T} C_n Y Y^{T} C_n X
+\end{align*}
+](https://render.githubusercontent.com/render/math?math=%5Cdisplaystyle+%5Cbegin%7Balign%2A%7D%0AS+%3D+S_%7Bxy%7D+S_%7Byx%7D+%3D+%5Cfrac%7B1%7D%7Bn-1%7D+X%5E%7BT%7D+C_n+Y+%5Ctimes+%5Cfrac%7B1%7D%7Bn-1%7D+Y%5E%7BT%7D+C_n+X+%3D+%5Cfrac%7B1%7D%7B%28n-1%29%5E2%7D+X%5E%7BT%7D+C_n+Y+Y%5E%7BT%7D+C_n+X%0A%5Cend%7Balign%2A%7D%0A)
+
+where $C_n$ and $n$ represent a centering matrix and a total number of samples, respectively.
+
 ```{r, message=FALSE}
 X <- t(na.omit(mtx))
 Y <- as.factor(Y)
@@ -176,6 +245,8 @@ plotIndiv(plsda.model, ind.names = FALSE, legend=TRUE, ellipse = TRUE)
 ```{r, message=FALSE}
 plsda.contributions <- selectVar(plsda.model, comp = 1)$value
 ```
+
+## References
 
 ## Software used
 ```{r}

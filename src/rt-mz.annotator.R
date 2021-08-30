@@ -5,7 +5,7 @@ atom.weights = read.table(paste0(dir,'/src/atom.weights.tab'),sep='\t',header=T)
 atom.weights[atom.weights$Symbol=='H(2)','Symbol'] = 'D(2)'
 atom.weights$sym = sapply(strsplit(atom.weights$Symbol,'(',TRUE),'[',1)
 atom.weights = do.call(rbind,lapply(split(atom.weights,atom.weights$sym),function(x){x[order(-x$Abund)[1],]}))
-LMDB = readRDS(paste0(dir,'/src/lm1.Rdata'))
+LMDB = readRDS(paste0(dir,'/src/lm1_2021.Rdata'))
 
 findMS2 = function(scans,rt=NULL,mz=NULL,drt=10,dmz=0.5,peak=NULL){
   if(!is.null(peak)){
@@ -331,14 +331,14 @@ annotateByMass. = function(mz.rt,db,adduct,ppm=100,delta=0.1){
   r = new.env()
   j = 0;
   for(i in 1:nrow(mz.rt)){
-    cat('\r',names(adduct),i,nrow(mz.rt),'     ')
+    ##cat('\r',names(adduct),i,nrow(mz.rt),'     ')
     if(j == nrow(db)) break
     mo = mz.rt$mz[i]
     for(k in (j+1):nrow(db)){
       d = db$EXACT_MASS[k]+adduct-mo
       p = d/(db$EXACT_MASS[k]+adduct)*1e6
       if(ifelse(!is.null(ppm),abs(p)<=ppm,abs(d)<=delta)){
-        r[[as.character(length(r))]] = cbind(mz.rt[i,],ion=names(adduct),db[k,c('LM_ID','EXACT_MASS','FORMULA')],ppm=abs(p),delta=abs(d),ppmd = p)
+        r[[as.character(length(r))]] = cbind(mz.rt[i,],ion=names(adduct),db[k,c('LM_ID','EXACT_MASS','FORMULA', 'SYSTEMATIC_NAME', 'ABBREV')],ppm=abs(p),delta=abs(d),ppmd = p)
       }else{
         if(d < 0){
           j = k

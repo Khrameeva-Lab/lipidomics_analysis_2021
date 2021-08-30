@@ -32,19 +32,23 @@ library(ggplot2)
 library(DT)
 library(IPO)
 library(mixOmics)
+library(dplyr)
+library(missForest)
+library(reshape2)
+library(gridExtra)
 ```
 
 
 ## Data import
 We will demonstrate the key concepts of LC-MS untargeted lipidomic analysis on the example of human fibroblasts dataset (ST001691 study from https://www.metabolomicsworkbench.org/). 
-The raw files converted into the .mzXML format can be downloaded in the current directory using the following code:
+Raw MS files from this project converted into the .mzXML format can be downloaded into the current directory using the following code:
 ```{r}
 #url <- "http://arcuda.skoltech.ru/~d.smirnov/sampledata.tar.gz"
 #download.file(url, destfile = 'sampledata.tar.gz')
 #untar('sampledata.tar.gz')
 ```
 
-For convenience, raw MS files located in the `sampledata/` are organized into the two subfolders according the treatment groups. 
+For convenience, raw MS files located in the `sampledata/` folder are organized into two subfolders according to the treatment groups (two files per group). The code below will create a table with sample metadata
 ```{r}
 mzfiles <- list.files('sampledata/', recursive = TRUE, full.names = TRUE, pattern = '.mzXML')
 group <- unlist(lapply(strsplit(mzfiles,"/"), function (x) x[[3]]))
@@ -55,7 +59,7 @@ pd <- data.frame(sample_name = sub(basename(mzfiles), pattern = ".mzXML", replac
 knitr::kable(pd)
 ```
 
-Now .mzXML files can be imported via `readMSData` function
+Now .mzXML files can be imported into `MSnExp` object via `readMSData` function
 ```{r}
 raw_data <- readMSData(files = mzfiles, 
                        pdata = new("NAnnotatedDataFrame", pd), 
@@ -65,8 +69,9 @@ raw_data <- readMSData(files = mzfiles,
                        centroided = T)
 ```
 
+
 ## Peak picking
-Feature detection `CentWave` algorithm based on continuous wavelet transformation allows to distinguish lipid peaks from background noise. To perform peak calling we need to set up CentWave parameters first.
+Feature detection `CentWave` algorithm based on continuous wavelet transformation allows to distinguish lipid peaks from background noise. To perform peak calling we need to set up CentWave parameters first
 ```{r}
 cwp <- CentWaveParam(peakwidth = c(9.5, 36),
                      ppm = 11.5,
@@ -78,6 +83,7 @@ cwp <- CentWaveParam(peakwidth = c(9.5, 36),
                      integrate = 1, 
                      fitgauss = FALSE)
 ```
+It's highly recommended to specify `peakwidth` (minimum and maximum MS peak width in RT dimension) and `ppm`(width of region of interest  in the m/z dimension) parameters based on ion chromatograms for internal standards. 
 
 Once the parameters are set one can proceed to chromatographic peak detection using `findChromPeaks` function.
 ```{r, message=FALSE}
@@ -85,6 +91,7 @@ xset <- findChromPeaks(raw_data, param = cwp)
 ```
 
 ## Peak alignment
+Peak alignment procedure aims to eliminate retention times shifts between identified chromatographic peaks from samples. We will use OBI-warp algorithm implemented within `xcms` package to match peaks between MS runs.
 ```{r}
 arp <- ObiwarpParam(distFun = "cor_opt", 
                     binSize = 1, 
@@ -94,13 +101,15 @@ arp <- ObiwarpParam(distFun = "cor_opt",
                     factorDiag = 2, 
                     factorGap = 1,
                     localAlignment = FALSE)
-```
 
-```{r, message=FALSE}
 xset <- adjustRtime(xset, param = arp)
 ```
+`ObiwarpParam` function creates an object with parameters for the alignment and `adjustRtime` performs the peak matching.
 
 ## Peak grouping
+Once retention time correction is done one can proceed to the correspondence analysis of aligned peaks. The general idea of peak grouping is to identify peaks from the same ion across samples and group them together to form a lipid feature. In order to do this analysis, we will use Peak density method that accessible in `xcms` via `groupChromPeaks` function. 
+`PeakDensityParam` object contains grouping settings and is used as input for `groupChromPeaks`.
+
 ```{r}
 pdp <- PeakDensityParam(sampleGroups = xset$sample_group, 
                         bw = 0.879999999999999, 
@@ -108,14 +117,16 @@ pdp <- PeakDensityParam(sampleGroups = xset$sample_group,
                         minFraction = 0.000001, 
                         minSamples = 1, 
                         maxFeatures = 50)
-```
 
-```{r}
 xset <- groupChromPeaks(xset, param = pdp)
 ```
 
+
 ## Selection of parameters for peak picking, alignment, and grouping
-In the code sections above we provide parameters optimized for 
+For simplicity and saving time, in the code sections above we provided parameters optimized for untargeted lipidome LC-MS measurements on a Reversed-Phase Bridged Ethyl Hybrid (BEH) C8 column reverse coupled to a Vanguard precolumn, using a Waters Acquity UPLC system and a heated electrospray ionization source in combination with a Bruker Impact II QTOF (quadrupole-Time-of-Flight) mass spectrometer. To customize the parameters for a particular LS-MS experiment we recommend optimizing them via `IPO` package. 
+
+Please note that optimizing peak calling parameters with `optimizeXcmsSet` function is a quite computationally intensive operation. It may take hours or even days (depending on the number of samples) before the optimization process ends!
+
 ```{r}
 peakpickingParameters <- getDefaultXcmsSetStartingParams('centWave')
 peakpickingParameters$min_peakwidth = c(0,10)
@@ -123,19 +134,15 @@ peakpickingParameters$max_peakwidth = c(10,30)
 peakpickingParameters$ppm = c(0,10)
 ```
 
-Please note that optimizing peak calling parameters with `optimizeXcmsSet` function is a quite computationally intensive operation. For simplicity and saving time, in the sections above we used already optimized parameters but ...
+To perform the optimization just uncomment the code below. It will return the R script with optimized processing parameters.
 ```{r}
 #resultPeakpicking <- optimizeXcmsSet(files = mzfiles, 
 #                                     params = peakpickingParameters, 
 #                                     nSlaves = 0, 
 #                                     subdir = NULL)
-```
 
-```{r}
 #optimizedXcmsSetObject <- resultPeakpicking$best_settings$xset
-```
 
-```{r}
 #retcorGroupParameters <- getDefaultRetGroupStartingParams()
 #resultRetcorGroup <- optimizeRetGroup(xset = optimizedXcmsSetObject, 
 #                                      params = retcorGroupParameters,
@@ -144,17 +151,18 @@ Please note that optimizing peak calling parameters with `optimizeXcmsSet` funct
 
 #writeRScript(resultPeakpicking$best_settings$parameters, 
 #             resultRetcorGroup$best_settings, 1)
-
 ```
 
 ## Imputation of missing values
-Unfortunately, peak peaking algorithm may produces a sufficient numbers of NaNs for those samples in which it wasn't able to identify MS peaks. We will try to impute missing chromatographic peaks within samples using `fillChromPeaks` function.
+Unfortunately, peak peaking algorithm may produces a sufficient numbers of NAs for those samples in which it wasn't able to identify MS peaks. We will try to impute missing chromatographic peaks within samples using `fillChromPeaks` function.
 ```{r}
 xset <- fillChromPeaks(xset)
 ```
+Please note that `fillChromPeaks` can not impute all the gaps in MS data. The remaining missing values will be further removed/imputed in the section "Filtering of peaks" below.
+
 
 ## Data export
-
+Now we can extract feature matrix from `xset` object
 ```{r, message=FALSE}
 pks <- chromPeaks(xset)
 grs <- featureDefinitions(xset)
@@ -164,24 +172,29 @@ knitr::kable(head(mtx))
 ```
 
 ## Filtering of peaks
-The code below removes all peaks that possess more than 30% of NaNs across samples.
+The code below removes all features that possess more than 30% of NA across samples.
 ```{r, message=FALSE}
 th <- 0.3
 peaks.nas <- apply(mtx, 1, function (x) sum(is.na(x)))
 mtx <- mtx[(peaks.nas/ncol(mtx)) < th, ]
 ```
 
-## Normalization
+To impute missing values not filled by `fillChromPeaks` and not removed by filtering we will use an implementation of random forest algorithm from `MissForest` package.
+```{r, message=FALSE}
+mtx.imp <- missForest(mtx)
+mtx <- mtx.imp$ximp
+```
 
 ## Annotation
 
-We will load the 
-```{r}
+Arguably, annotation is the most tricky part of untargeted LS-MS analysis. Here we present 
+```{r, message=FALSE}
 source("src/rt-mz.annotator.R")
 ```
 
 ```{r}
 grs <- as.data.frame(grs)
+grs <- grs[rownames(mtx), ]
 grs.short <- dplyr::select(grs, mzmed, rtmed)
 grs.short$id <- paste(round(grs.short$mzmed, 3), round(grs.short$rtmed, 3), sep = '_')
 grs.short <- grs.short[,c(3,1,2)]
@@ -189,12 +202,46 @@ colnames(grs.short) <- c('id', 'mz', 'rt')
 knitr::kable(head(grs.short))
 ```
 
-```{r, message=FALSE, echo=FALSE}
-ann = annotateByMass(grs.short, db = LMDB)
+```{r, message=FALSE}
+ann <- annotateByMass(grs.short, db = LMDB)
 ```
 
 ```{r}
 knitr::kable(head(ann))
+```
+```{r}
+grs.annotated <- filter(grs.short, id %in% unique(ann$id))
+mtx <- mtx[rownames(grs.annotated),]
+```
+
+## Normalization
+We will use median normalization method to make samples comparable to each other
+```{r}
+mtx.normalized <- apply(mtx, 2, function(x) x/median(x))
+```
+
+```{r}
+mtx.normalized <- log10(mtx.normalized+1)
+```
+
+```{r}
+NormalizationPlot <- function(data, title){
+    fill <- "#4271AE"
+    line <- "#1F3552"
+    data <- melt(data)
+    colnames(data) <- c("Variable", "Samples", "Abundance")
+    font.size <- 8
+    ggplot(data,aes(x = Abundance, y = Samples)) + 
+        geom_boxplot(fill = fill, colour = line, alpha = 0.7) + coord_flip() +
+        ggtitle(title) + theme_light(base_size = 12) + ylab(NULL)
+}
+```
+
+```{r}
+options(repr.plot.width=15, repr.plot.height=7)
+p1 <- NormalizationPlot(log10(mtx), title = 'Before normalization')
+p2 <- NormalizationPlot(mtx.normalized, title = 'After normalization')
+grid.arrange(p1, p2, nrow = 1)
 ```
 
 ## Downstream analysis
@@ -211,7 +258,7 @@ where $C_n = I_n - \frac{1}{n}1_{n} 1^{T}_{n}$ is a centering matrix, $I_n$ repr
 
 To calculate principal components we will use base R function `prcomp`
 ```{r, message=FALSE}
-pca <- prcomp(t(na.omit(mtx)), center = TRUE, scale. = TRUE)
+pca <- prcomp(t(mtx.normalized), center = TRUE, scale. = TRUE)
 ```
 
 To visualize relationships between samples in a new low dimensional space we will plot PC1 and PC2 against each other.
@@ -245,8 +292,6 @@ plotIndiv(plsda.model, ind.names = FALSE, legend=TRUE, ellipse = TRUE)
 ```{r, message=FALSE}
 plsda.contributions <- selectVar(plsda.model, comp = 1)$value
 ```
-
-## References
 
 ## Software used
 ```{r}

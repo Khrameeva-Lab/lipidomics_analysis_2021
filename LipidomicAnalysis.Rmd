@@ -108,7 +108,7 @@ xset <- adjustRtime(xset, param = arp)
 
 
 An example of peaks before and after RT shift correction is shown below
-```{r}
+```{r, fig.width = 7, fig.height= 3.5}
 group_colors <- c("black", "red", "forestgreen")
 names(group_colors) <- unique(xset$sample_group)
 
@@ -116,9 +116,9 @@ par(mfrow=c(1,2),las=1)
 chr <- chromatogram(xset, rt = c(405, 435), mz = c(797.58, 797.63), aggregationFun = "max", adjustedRtime = F)
 chr.adj <- chromatogram(xset, rt = c(405, 435), mz = c(797.58, 797.63), aggregationFun = "max", adjustedRtime = T)
 plot(chr, peakType = "none", col=group_colors[xset$sample_group], main = "Before alignment")
-legend(428, 32000, legend=c("Blank", "Human", "Macaque"), col=group_colors, lty=1:1, cex=0.95)
+legend(427, 32000, legend=c("Blank", "Human", "Macaque"), col=group_colors, lty=1:1, cex=0.95)
 plot(chr.adj, peakType = "none", col=group_colors[xset$sample_group], main = "After alignment")
-legend(428, 32000, legend=c("Blank", "Human", "Macaque"), col=group_colors, lty=1:1, cex=0.95)
+legend(427, 32000, legend=c("Blank", "Human", "Macaque"), col=group_colors, lty=1:1, cex=0.95)
 ```
 
 
@@ -213,16 +213,32 @@ dim(ann)
 
 The function yields a table containing LM ID of annotated feature along with formula, systematic name, corresponding ppm/ppmd and delta values.
 ```{r}
-knitr::kable(head(ann))
-```
-
-Keep annotated features only
-```{r}
 grs.annotated <- filter(grs.short, id %in% unique(ann$id))
 grs.annotated <- tibble::rownames_to_column(grs.annotated, "xcmsID")
 grs.annotated <- full_join(grs.annotated[,c(1,2)], ann, by=c("id"="id"))
-
+knitr::kable(head(grs.annotated))
+```
+Keep annotated features only
+```{r}
 mtx <- mtx[unique(grs.annotated$xcmsID),]
+```
+
+Also one can try to perform annotation for specific lipid class only. We will illustrate such approach using a custom TAG generator that creates a table of triacylglycerols (TAG_10:0	- TAG_70:8) with corresponding lipid formula and exact masses.
+
+```{r}
+tags = generateTGL(10:70,0:8) # the generator is quite simple, some tags it mage are meaningless (like 10:8)
+electron.mass = 0.00054858
+knitr::kable(head(tags))
+```
+
+We will use the same `annotateByMass` function as a before, but with previously generated TAG table instead of full LIPIDMAPS database.
+```{r}
+ann2 = annotateByMass(grs.short,
+                      tags,
+                      ions = c(NH4=calcExactMass('NH4')-electron.mass),
+                      ppm=10)
+
+knitr::kable(head(ann2))
 ```
 
 ## Filtering of peaks

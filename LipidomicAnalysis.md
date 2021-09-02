@@ -161,9 +161,9 @@ par(mfrow=c(1,2),las=1)
 chr <- chromatogram(xset, rt = c(405, 435), mz = c(797.58, 797.63), aggregationFun = "max", adjustedRtime = F)
 chr.adj <- chromatogram(xset, rt = c(405, 435), mz = c(797.58, 797.63), aggregationFun = "max", adjustedRtime = T)
 plot(chr, peakType = "none", col=group_colors[xset$sample_group], main = "Before alignment")
-legend(428, 32000, legend=c("Blank", "Human", "Macaque"), col=group_colors, lty=1:1, cex=0.95)
+legend(427, 32000, legend=c("Blank", "Human", "Macaque"), col=group_colors, lty=1:1, cex=0.95)
 plot(chr.adj, peakType = "none", col=group_colors[xset$sample_group], main = "After alignment")
-legend(428, 32000, legend=c("Blank", "Human", "Macaque"), col=group_colors, lty=1:1, cex=0.95)
+legend(427, 32000, legend=c("Blank", "Human", "Macaque"), col=group_colors, lty=1:1, cex=0.95)
 ```
 
 ![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-8-1.png)<!-- -->
@@ -324,27 +324,67 @@ The function yields a table containing LM ID of annotated feature along
 with formula, systematic name, corresponding ppm/ppmd and delta values.
 
 ``` r
-knitr::kable(head(ann))
+grs.annotated <- filter(grs.short, id %in% unique(ann$id))
+grs.annotated <- tibble::rownames_to_column(grs.annotated, "xcmsID")
+grs.annotated <- full_join(grs.annotated[,c(1,2)], ann, by=c("id"="id"))
+knitr::kable(head(grs.annotated))
 ```
 
-|        | id               |       mz |        rt | ion | LM\_ID       | EXACT\_MASS | FORMULA | SYSTEMATIC\_NAME                                                                                                                                                                                            | ABBREV |       ppm |     delta |       ppmd |
-|:-------|:-----------------|---------:|----------:|:----|:-------------|------------:|:--------|:------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|:-------|----------:|----------:|-----------:|
-| 0      | 113.133\_286.704 | 113.1329 | 286.70374 | H   | LMFA11000592 |    112.1252 | C8H16   | 3-methyl-1-heptene//cis-1,2-dimethylcyclohexane//trans-1,2-dimethylcyclohexane//1,4-dimethylcyclohexane//Ethylcyclohexane                                                                                   | \-     |  3.336934 | 0.0003775 |  -3.336934 |
-| 02     | 121.028\_286.204 | 121.0283 | 286.20401 | Na  | LMFA01030099 |     98.0368 | C5H6O2  | 2,4-pentadienoic acid//penta-2,4-dienoic acid                                                                                                                                                               | FA 5:2 | 18.635676 | 0.0022554 | -18.635676 |
-| 1      | 121.028\_286.204 | 121.0283 | 286.20401 | H   | LMFA01130006 |    120.0245 | C4H8O2S | 3-(methyl-sulfanyl)-propanoic acid                                                                                                                                                                          | \-     | 28.939494 | 0.0035026 |  28.939494 |
-| 110002 | 121.101\_328.29  | 121.1014 | 328.29016 | Na  | LMFA11000319 |     98.1095 | C7H14   | 1-Heptene//Methylcyclohexane//1,2-dimethylcyclopentane//Ethylcyclopentane                                                                                                                                   | \-     | 21.900800 | 0.0026522 | -21.900800 |
-| 01     | 121.101\_328.29  | 121.1014 | 328.29016 | NH4 | LMFA01100034 |    103.0633 | C4H9NO2 | 2S-amino-butanoic acid//4-amino-butanoic acid//2R-amino-butanoic acid//2R-methyl-3-amino-propanoic acid//2S-methyl-3-amino-propanoic acid//2-amino-2-methyl-propanoic acid//3-amino-3-methyl-propionic acid | \-     | 35.072335 | 0.0042472 | -35.072335 |
-| 03     | 123.056\_35.377  | 123.0556 |  35.37667 | K   | LMFA11000035 |     84.0939 | C6H12   | 2E-Hexene                                                                                                                                                                                                   | \-     | 11.744882 | 0.0014453 |  11.744882 |
+| xcmsID  | id               |       mz |        rt | ion | LM\_ID       | EXACT\_MASS | FORMULA | SYSTEMATIC\_NAME                                                                                                                                                                                            | ABBREV |       ppm |     delta |       ppmd |
+|:--------|:-----------------|---------:|----------:|:----|:-------------|------------:|:--------|:------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|:-------|----------:|----------:|-----------:|
+| FT00001 | 113.133\_286.704 | 113.1329 | 286.70374 | H   | LMFA11000592 |    112.1252 | C8H16   | 3-methyl-1-heptene//cis-1,2-dimethylcyclohexane//trans-1,2-dimethylcyclohexane//1,4-dimethylcyclohexane//Ethylcyclohexane                                                                                   | \-     |  3.336934 | 0.0003775 |  -3.336934 |
+| FT00003 | 121.028\_286.204 | 121.0283 | 286.20401 | Na  | LMFA01030099 |     98.0368 | C5H6O2  | 2,4-pentadienoic acid//penta-2,4-dienoic acid                                                                                                                                                               | FA 5:2 | 18.635676 | 0.0022554 | -18.635676 |
+| FT00003 | 121.028\_286.204 | 121.0283 | 286.20401 | H   | LMFA01130006 |    120.0245 | C4H8O2S | 3-(methyl-sulfanyl)-propanoic acid                                                                                                                                                                          | \-     | 28.939494 | 0.0035026 |  28.939494 |
+| FT00004 | 121.101\_328.29  | 121.1014 | 328.29016 | Na  | LMFA11000319 |     98.1095 | C7H14   | 1-Heptene//Methylcyclohexane//1,2-dimethylcyclopentane//Ethylcyclopentane                                                                                                                                   | \-     | 21.900800 | 0.0026522 | -21.900800 |
+| FT00004 | 121.101\_328.29  | 121.1014 | 328.29016 | NH4 | LMFA01100034 |    103.0633 | C4H9NO2 | 2S-amino-butanoic acid//4-amino-butanoic acid//2R-amino-butanoic acid//2R-methyl-3-amino-propanoic acid//2S-methyl-3-amino-propanoic acid//2-amino-2-methyl-propanoic acid//3-amino-3-methyl-propionic acid | \-     | 35.072335 | 0.0042472 | -35.072335 |
+| FT00006 | 123.056\_35.377  | 123.0556 |  35.37667 | K   | LMFA11000035 |     84.0939 | C6H12   | 2E-Hexene                                                                                                                                                                                                   | \-     | 11.744882 | 0.0014453 |  11.744882 |
 
 Keep annotated features only
 
 ``` r
-grs.annotated <- filter(grs.short, id %in% unique(ann$id))
-grs.annotated <- tibble::rownames_to_column(grs.annotated, "xcmsID")
-grs.annotated <- full_join(grs.annotated[,c(1,2)], ann, by=c("id"="id"))
-
 mtx <- mtx[unique(grs.annotated$xcmsID),]
 ```
+
+Also one can try to perform annotation for specific lipid class only. We
+will illustrate such approach using a custom TAG generator that creates
+a table of triacylglycerols (TAG\_10:0 - TAG\_70:8) with corresponding
+lipid formula and exact masses.
+
+``` r
+tags = generateTGL(10:70,0:8) # the generator is quite simple, some tags it mage are meaningless (like 10:8)
+electron.mass = 0.00054858
+knitr::kable(head(tags))
+```
+
+|          |   n |   k | FORMULA  | EXACT\_MASS | LM\_ID    |
+|:---------|----:|----:|:---------|------------:|:----------|
+| C13H22O6 |  10 |   0 | C13H22O6 |    274.1416 | TAG\_10:0 |
+| C13H20O6 |  10 |   1 | C13H20O6 |    272.1260 | TAG\_10:1 |
+| C13H18O6 |  10 |   2 | C13H18O6 |    270.1103 | TAG\_10:2 |
+| C13H16O6 |  10 |   3 | C13H16O6 |    268.0947 | TAG\_10:3 |
+| C13H14O6 |  10 |   4 | C13H14O6 |    266.0790 | TAG\_10:4 |
+| C13H12O6 |  10 |   5 | C13H12O6 |    264.0634 | TAG\_10:5 |
+
+We will use the same `annotateByMass` function as a before, but with
+previously generated TAG table instead of full LIPIDMAPS database.
+
+``` r
+ann2 = annotateByMass(grs.short,
+                      tags,
+                      ions = c(NH4=calcExactMass('NH4')-electron.mass),
+                      ppm=10)
+
+knitr::kable(head(ann2))
+```
+
+|     | id               |       mz |        rt | ion | LM\_ID    | EXACT\_MASS | FORMULA  |      ppm |     delta |      ppmd |
+|:----|:-----------------|---------:|----------:|:----|:----------|------------:|:---------|---------:|----------:|----------:|
+| 0   | 290.161\_37.195  | 290.1612 |  37.19504 | NH4 | TAG\_10:1 |    272.1260 | C13H20O6 | 4.632649 | 0.0013442 | -4.632649 |
+| 1   | 304.084\_60.23   | 304.0841 |  60.22953 | NH4 | TAG\_12:8 |    286.0477 | C15H10O6 | 8.201367 | 0.0024939 | -8.201367 |
+| 2   | 318.193\_41.184  | 318.1925 |  41.18413 | NH4 | TAG\_12:1 |    300.1573 | C15H24O6 | 4.487987 | 0.0014280 | -4.487987 |
+| 3   | 358.225\_50.211  | 358.2254 |  50.21149 | NH4 | TAG\_15:2 |    340.1886 | C18H28O6 | 8.342262 | 0.0029884 | -8.342262 |
+| 4   | 366.192\_227.582 | 366.1916 | 227.58200 | NH4 | TAG\_16:5 |    348.1573 | C19H24O6 | 1.326931 | 0.0004859 | -1.326931 |
+| 5   | 442.318\_200.285 | 442.3181 | 200.28549 | NH4 | TAG\_21:2 |    424.2825 | C24H40O6 | 4.064942 | 0.0017980 | -4.064942 |
 
 ## Filtering of peaks
 
@@ -377,7 +417,7 @@ points((med.MS[filter.blank]+med.blank[filter.blank])/2,
 abline(h=log10(2),col="#B20F25")
 ```
 
-![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-20-1.png)<!-- -->
+![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-22-1.png)<!-- -->
 
 The code below removes all features that possess more than 30% of NA
 across samples.
@@ -399,6 +439,8 @@ mtx.imp <- missForest(mtx)
     ##   missForest iteration 1 in progress...done!
     ##   missForest iteration 2 in progress...done!
     ##   missForest iteration 3 in progress...done!
+    ##   missForest iteration 4 in progress...done!
+    ##   missForest iteration 5 in progress...done!
 
 ``` r
 mtx <- mtx.imp$ximp
@@ -489,7 +531,7 @@ ggplot(data = pca.data, aes_string(x = "PC1", y = "PC2", color = "class", shape 
     theme_light()
 ```
 
-![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-27-1.png)<!-- -->
+![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-29-1.png)<!-- -->
 
 ### Partial Least-Squares Discriminant Analysis (PLS-DA)
 
@@ -540,7 +582,7 @@ plotIndiv(splsda.model, ind.names = FALSE, legend=TRUE, ellipse = TRUE)
     ## Warning: It is deprecated to specify `guide = FALSE` to remove a guide. Please
     ## use `guide = "none"` instead.
 
-![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-30-1.png)<!-- -->
+![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-32-1.png)<!-- -->
 
 A vector of feature contributions can be retrieved from the model in the
 following way

@@ -40,3 +40,6 @@ vignettes/*.pdf
 
 # Test data
 sampledata/
+
+# Jupyter notebook
+Preprocessing.ipynb

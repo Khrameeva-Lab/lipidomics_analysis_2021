@@ -40,7 +40,7 @@ library(gridExtra)
 
 
 ## Data import
-We will demonstrate the key concepts of LC-MS untargeted lipidomic analysis on the example of human fibroblasts dataset (ST001691 study from https://www.metabolomicsworkbench.org/). 
+We will demonstrate the key concepts of LC-MS untargeted lipidomic analysis on the example of human and macaque lipidomic profiles from Dorsolateral Prefrontal Cortex. 
 Raw MS files from this project converted into the .mzXML format can be downloaded into the current directory using the following code:
 ```{r}
 #url <- "http://arcuda.skoltech.ru/~d.smirnov/sampledata.tar.gz"
@@ -48,7 +48,7 @@ Raw MS files from this project converted into the .mzXML format can be downloade
 #untar('sampledata.tar.gz')
 ```
 
-For convenience, raw MS files located in the `sampledata/` folder are organized into two subfolders according to the treatment groups (two files per group). The code below will create a table with sample metadata
+For convenience, raw MS files located in the `sampledata/` folder are organized into two subfolders according to the species (2 files per species + blank measurements). The code below will create a table with sample metadata
 ```{r}
 mzfiles <- list.files('sampledata/', recursive = TRUE, full.names = TRUE, pattern = '.mzXML')
 group <- unlist(lapply(strsplit(mzfiles,"/"), function (x) x[[3]]))
@@ -106,6 +106,22 @@ xset <- adjustRtime(xset, param = arp)
 ```
 `ObiwarpParam` function creates an object with parameters for the alignment and `adjustRtime` performs the peak matching.
 
+
+An example of peaks before and after RT shift correction is shown below
+```{r}
+group_colors <- c("black", "red", "forestgreen")
+names(group_colors) <- unique(xset$sample_group)
+
+par(mfrow=c(1,2),las=1)
+chr <- chromatogram(xset, rt = c(405, 435), mz = c(797.58, 797.63), aggregationFun = "max", adjustedRtime = F)
+chr.adj <- chromatogram(xset, rt = c(405, 435), mz = c(797.58, 797.63), aggregationFun = "max", adjustedRtime = T)
+plot(chr, peakType = "none", col=group_colors[xset$sample_group], main = "Before alignment")
+legend(428, 32000, legend=c("Blank", "Human", "Macaque"), col=group_colors, lty=1:1, cex=0.95)
+plot(chr.adj, peakType = "none", col=group_colors[xset$sample_group], main = "After alignment")
+legend(428, 32000, legend=c("Blank", "Human", "Macaque"), col=group_colors, lty=1:1, cex=0.95)
+```
+
+
 ## Peak grouping
 Once retention time correction is done one can proceed to the correspondence analysis of aligned peaks. The general idea of peak grouping is to identify peaks from the same ion across samples and group them together to form a lipid feature. In order to do this analysis, we will use Peak density method that accessible in `xcms` via `groupChromPeaks` function. 
 `PeakDensityParam` object contains grouping settings and is used as input for `groupChromPeaks`.
@@ -127,14 +143,15 @@ For simplicity and saving time, in the code sections above we provided parameter
 
 Please note that optimizing peak calling parameters with `optimizeXcmsSet` function is a quite computationally intensive operation. It may take hours or even days (depending on the number of samples) before the optimization process ends!
 
+To perform the optimization just uncomment the code below. It will return the R script with optimized processing parameters.
+
 ```{r}
-peakpickingParameters <- getDefaultXcmsSetStartingParams('centWave')
-peakpickingParameters$min_peakwidth = c(0,10)
-peakpickingParameters$max_peakwidth = c(10,30)
-peakpickingParameters$ppm = c(0,10)
+#peakpickingParameters <- getDefaultXcmsSetStartingParams('centWave')
+#peakpickingParameters$min_peakwidth = c(0,10)
+#peakpickingParameters$max_peakwidth = c(10,30)
+#peakpickingParameters$ppm = c(0,10)
 ```
 
-To perform the optimization just uncomment the code below. It will return the R script with optimized processing parameters.
 ```{r}
 #resultPeakpicking <- optimizeXcmsSet(files = mzfiles, 
 #                                     params = peakpickingParameters, 
@@ -171,7 +188,69 @@ mtx <- featureValues(xset, method="maxint", value="into", filled=T)
 knitr::kable(head(mtx))
 ```
 
+## Annotation
+Annotation is arguably the most tricky part of untargeted LS-MS analysis. Here we present a method to create annotation for lipid features obtained in the previous steps.
+```{r, message=FALSE}
+source("src/rt-mz.annotator.R")
+```
+
+Prepare the reduced version of `grs` table with a new column consisting of merged mz and rt values
+```{r}
+grs <- as.data.frame(grs)
+grs <- grs[rownames(mtx), ]
+grs.short <- dplyr::select(grs, mzmed, rtmed)
+grs.short$id <- paste(round(grs.short$mzmed, 3), round(grs.short$rtmed, 3), sep = '_')
+grs.short <- grs.short[,c(3,1,2)]
+colnames(grs.short) <- c('id', 'mz', 'rt')
+knitr::kable(head(grs.short))
+```
+`annotateByMass` function annotates lipid features by matching their exact mass against m/z values of existing lipids from LIPID MAPS database. Adducts can be defined by `ions` parameter, by default the function uses H, Na, NH4,K,NH4 + acetonitrile. Default ppm threshold in `annotateByMass` is 100, but it also can be changed with `ppm` parameter.
+
+```{r, message=FALSE}
+ann <- annotateByMass(grs.short, db = LMDB)
+dim(ann)
+```
+
+The function yields a table containing LM ID of annotated feature along with formula, systematic name, corresponding ppm/ppmd and delta values.
+```{r}
+knitr::kable(head(ann))
+```
+
+Keep annotated features only
+```{r}
+grs.annotated <- filter(grs.short, id %in% unique(ann$id))
+grs.annotated <- tibble::rownames_to_column(grs.annotated, "xcmsID")
+grs.annotated <- full_join(grs.annotated[,c(1,2)], ann, by=c("id"="id"))
+
+mtx <- mtx[unique(grs.annotated$xcmsID),]
+```
+
 ## Filtering of peaks
+We will perform feature filtering based on blank samples to retain all features for which the median concentration ratio between biological samples and blank samples is greater than 2.
+```{r, message=FALSE}
+med.MS <- apply(mtx, 1, function(x) log10(median(x[grep("MS",colnames(mtx),perl=T)], na.rm=T)))
+med.blank <- apply(mtx, 1, function(x) log10(median(x[grep("Blank",colnames(mtx))], na.rm=T)))
+filter.blank <- (med.MS - med.blank) > log10(2)
+filter.blank[filter.blank==T] <- NA
+filter.blank[is.na(filter.blank)] <- T
+mtx <- mtx[filter.blank, c(2:5)]
+```
+
+The proportion of filtered features can be visualized using a mean-difference plot:
+```{r, message=FALSE}
+plot((med.MS+med.blank)/2, 
+     med.MS-med.blank, 
+     pch=21, las=1, bg="gray",  
+     col="dimgray", cex=1.2, lwd=0.4, xlab = "Sample Intensity", ylab = "Sample - Blank")
+
+points((med.MS[filter.blank]+med.blank[filter.blank])/2,
+       med.MS[filter.blank]-med.blank[filter.blank],
+       pch=21, bg="#B20F25", col="dimgray", cex=1.2, lwd=0.4)
+
+abline(h=log10(2),col="#B20F25")
+```
+
+
 The code below removes all features that possess more than 30% of NA across samples.
 ```{r, message=FALSE}
 th <- 0.3
@@ -185,69 +264,34 @@ mtx.imp <- missForest(mtx)
 mtx <- mtx.imp$ximp
 ```
 
-## Annotation
-
-Arguably, annotation is the most tricky part of untargeted LS-MS analysis. Here we present 
-```{r, message=FALSE}
-source("src/rt-mz.annotator.R")
-```
-
-```{r}
-grs <- as.data.frame(grs)
-grs <- grs[rownames(mtx), ]
-grs.short <- dplyr::select(grs, mzmed, rtmed)
-grs.short$id <- paste(round(grs.short$mzmed, 3), round(grs.short$rtmed, 3), sep = '_')
-grs.short <- grs.short[,c(3,1,2)]
-colnames(grs.short) <- c('id', 'mz', 'rt')
-knitr::kable(head(grs.short))
-```
-
-```{r, message=FALSE}
-ann <- annotateByMass(grs.short, db = LMDB)
-```
-
-```{r}
-knitr::kable(head(ann))
-```
-```{r}
-grs.annotated <- filter(grs.short, id %in% unique(ann$id))
-mtx <- mtx[rownames(grs.annotated),]
-```
 
 ## Normalization
-We will use median normalization method to make samples comparable to each other
+In order to make samples comparable to each other we will utilize sample-specific normalization by wet weight.
+
+Change the column names first
 ```{r}
-mtx.normalized <- apply(mtx, 2, function(x) x/median(x))
+colnames(mtx) <- unlist(strsplit(colnames(mtx), split = '.mzXML'))
 ```
 
+Load the matrix of wet weights for our samples
 ```{r}
-mtx.normalized <- log10(mtx.normalized+1)
+wetw <- as.matrix(read.csv("POS.WETWEIGHT.csv", header=F, row.names=1))
+wetw <- log10(wetw)
+knitr::kable(wetw)
 ```
 
+Perform the normalization
 ```{r}
-NormalizationPlot <- function(data, title){
-    fill <- "#4271AE"
-    line <- "#1F3552"
-    data <- melt(data)
-    colnames(data) <- c("Variable", "Samples", "Abundance")
-    font.size <- 8
-    ggplot(data,aes(x = Abundance, y = Samples)) + 
-        geom_boxplot(fill = fill, colour = line, alpha = 0.7) + coord_flip() +
-        ggtitle(title) + theme_light(base_size = 12) + ylab(NULL)
-}
-```
-
-```{r}
-options(repr.plot.width=15, repr.plot.height=7)
-p1 <- NormalizationPlot(log10(mtx), title = 'Before normalization')
-p2 <- NormalizationPlot(mtx.normalized, title = 'After normalization')
-grid.arrange(p1, p2, nrow = 1)
+wetw <- wetw[colnames(mtx), ]
+mtx <- log10(mtx)
+mtx.normalized <- t(apply(mtx, 1, function (x) x-wetw+mean(wetw)))
 ```
 
 ## Downstream analysis
- 
+Processed matrix with quantified lipid abundances can be used for downstream analysis. We will apply two classical approaches (PCA and PLS-DA) to analyze the sample-specific differences between human and macaque lipid profiles. 
+
 ### Principal Component Analysis (PCA)
-PCA projects original matrix of lipid abundances into low dimensional space. For a given matrix $X_{n \times m}$, where samples are rows and samples are columns, principal component vectors can be defined by finding eigenvectors of the following sample covariance matrix $S$:
+PCA is multivariate technique that extremely useful for classification purpose. The key idea of the method is to project original matrix of lipid abundances into low dimensional space. To perform dimensionality reduction PCA computes the reduced set of uncorrelated variables named `Principal Components`. For a given matrix $X_{n \times m}$, where features are rows and samples are columns, principal component vectors can be defined by finding eigenvectors of the following sample covariance matrix $S$:
 
 ![\begin{align*}
 S = \frac{1}{n-1} X^{T} C_n X
@@ -264,16 +308,15 @@ pca <- prcomp(t(mtx.normalized), center = TRUE, scale. = TRUE)
 To visualize relationships between samples in a new low dimensional space we will plot PC1 and PC2 against each other.
 
 ```{r, message=FALSE}
-Y <- pd$sample_group 
+Y <- pd$sample_group[2:5] 
 pca.data <- data.frame(PC1 = pca$x[, 1], PC2 = pca$x[, 2], class = Y)
 ggplot(data = pca.data, aes_string(x = "PC1", y = "PC2", color = "class", shape = "class")) + 
-    geom_point(size = 4) +
+    geom_point(size = 5) +
     theme_light()
 ```
 
 ### Partial Least-Squares Discriminant Analysis (PLS-DA)
-
-Mathematically, PLS-DA principal components can be obtained in a similar to PCA manner, as eigenvectors of a matrix of covariances between $X$ and $Y$: 
+While both PCA and PLS-DA achieve dimensionality reduction computing the principal components, PLS-DA can be used rather for feature selection than for classification purpose. Mathematically, PLS-DA principal components can be obtained in a similar to PCA manner, as eigenvectors of a matrix of covariances between $X$ and $Y$: 
 
 ![\begin{align*}
 S = S_{xy} S_{yx} = \frac{1}{n-1} X^{T} C_n Y \times \frac{1}{n-1} Y^{T} C_n X = \frac{1}{(n-1)^2} X^{T} C_n Y Y^{T} C_n X
@@ -282,27 +325,34 @@ S = S_{xy} S_{yx} = \frac{1}{n-1} X^{T} C_n Y \times \frac{1}{n-1} Y^{T} C_n X =
 
 where $C_n$ and $n$ represent a centering matrix and a total number of samples, respectively.
 
+We will use the sparse version of the algorithm - sPLS-DA. First of all, matrix of predictors and vector of responses should be defined
 ```{r, message=FALSE}
-X <- t(na.omit(mtx))
+X <- t(mtx.normalized)
 Y <- as.factor(Y)
-plsda.model <- plsda(X, Y, ncomp = 2)
-plotIndiv(plsda.model, ind.names = FALSE, legend=TRUE, ellipse = TRUE)
 ```
 
+Tune sPLS-DA parameters using Leave-One-Out cross validation
 ```{r, message=FALSE}
-plsda.contributions <- selectVar(plsda.model, comp = 1)$value
+list.keepX <- seq(1, 100, 2)
+tune.splsda <- tune.splsda(X, Y, ncomp = 2, validation = 'loo', folds = 4, 
+                           progressBar = FALSE, dist = 'max.dist',
+                           test.keepX = list.keepX, nrepeat = 1)
+```
+
+Run sPLS-DA with optimized parameters
+```{r, message=FALSE}
+splsda.model <- splsda(X, Y, ncomp = 2, keepX = tune.splsda$choice.keepX)
+plotIndiv(splsda.model, ind.names = FALSE, legend=TRUE, ellipse = TRUE)
+```
+
+A vector of feature contributions can be retrieved from the model in the following way
+```{r, message=FALSE}
+plsda.contributions <- selectVar(splsda.model, comp = 1)$value
 ```
 
 ## Software used
 ```{r}
 sessionInfo()
 ```
-
-
-
-
-
-
-
 
 

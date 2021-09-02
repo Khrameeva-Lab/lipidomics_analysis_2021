@@ -38,10 +38,10 @@ library(gridExtra)
 ## Data import
 
 We will demonstrate the key concepts of LC-MS untargeted lipidomic
-analysis on the example of human fibroblasts dataset (ST001691 study
-from <https://www.metabolomicsworkbench.org/>). Raw MS files from this
-project converted into the .mzXML format can be downloaded into the
-current directory using the following code:
+analysis on the example of human and macaque lipidomic profiles from
+Dorsolateral Prefrontal Cortex. Raw MS files from this project converted
+into the .mzXML format can be downloaded into the current directory
+using the following code:
 
 ``` r
 #url <- "http://arcuda.skoltech.ru/~d.smirnov/sampledata.tar.gz"
@@ -50,9 +50,9 @@ current directory using the following code:
 ```
 
 For convenience, raw MS files located in the `sampledata/` folder are
-organized into two subfolders according to the treatment groups (two
-files per group). The code below will create a table with sample
-metadata
+organized into two subfolders according to the species (2 files per
+species + blank measurements). The code below will create a table with
+sample metadata
 
 ``` r
 mzfiles <- list.files('sampledata/', recursive = TRUE, full.names = TRUE, pattern = '.mzXML')
@@ -64,12 +64,13 @@ pd <- data.frame(sample_name = sub(basename(mzfiles), pattern = ".mzXML", replac
 knitr::kable(pd)
 ```
 
-| sample\_name | sample\_group |
-|:-------------|:--------------|
-| Sphin1       | Sphin         |
-| Sphin2       | Sphin         |
-| Total1       | Total         |
-| Total2       | Total         |
+| sample\_name   | sample\_group |
+|:---------------|:--------------|
+| Blank7\_B\_23  | blank         |
+| MS299\_HB\_38  | human         |
+| MS650\_HD\_346 | human         |
+| MS122\_MA\_307 | macaque       |
+| MS423\_MB\_628 | macaque       |
 
 Now .mzXML files can be imported into `MSnExp` object via `readMSData`
 function
@@ -83,13 +84,15 @@ raw_data <- readMSData(files = mzfiles,
                        centroided = T)
 ```
 
-    ## Reading 584 spectra from file Sphin1.mzXML
+    ## Reading 2880 spectra from file Blank7_B_23.mzXML
 
-    ## Reading 584 spectra from file Sphin2.mzXML
+    ## Reading 2881 spectra from file MS299_HB_38.mzXML
 
-    ## Reading 584 spectra from file Total1.mzXML
+    ## Reading 2876 spectra from file MS650_HD_346.mzXML
 
-    ## Reading 584 spectra from file Total2.mzXML
+    ## Reading 2874 spectra from file MS122_MA_307.mzXML
+
+    ## Reading 2877 spectra from file MS423_MB_628.mzXML
 
 ## Peak picking
 
@@ -141,12 +144,29 @@ arp <- ObiwarpParam(distFun = "cor_opt",
 xset <- adjustRtime(xset, param = arp)
 ```
 
-    ## Sample number 2 used as center sample.
+    ## Sample number 3 used as center sample.
 
     ## Applying retention time adjustment to the identified chromatographic peaks ... OK
 
 `ObiwarpParam` function creates an object with parameters for the
 alignment and `adjustRtime` performs the peak matching.
+
+An example of peaks before and after RT shift correction is shown below
+
+``` r
+group_colors <- c("black", "red", "forestgreen")
+names(group_colors) <- unique(xset$sample_group)
+
+par(mfrow=c(1,2),las=1)
+chr <- chromatogram(xset, rt = c(405, 435), mz = c(797.58, 797.63), aggregationFun = "max", adjustedRtime = F)
+chr.adj <- chromatogram(xset, rt = c(405, 435), mz = c(797.58, 797.63), aggregationFun = "max", adjustedRtime = T)
+plot(chr, peakType = "none", col=group_colors[xset$sample_group], main = "Before alignment")
+legend(428, 32000, legend=c("Blank", "Human", "Macaque"), col=group_colors, lty=1:1, cex=0.95)
+plot(chr.adj, peakType = "none", col=group_colors[xset$sample_group], main = "After alignment")
+legend(428, 32000, legend=c("Blank", "Human", "Macaque"), col=group_colors, lty=1:1, cex=0.95)
+```
+
+![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-8-1.png)<!-- -->
 
 ## Peak grouping
 
@@ -169,7 +189,7 @@ pdp <- PeakDensityParam(sampleGroups = xset$sample_group,
 xset <- groupChromPeaks(xset, param = pdp)
 ```
 
-    ## Processing 123943 mz slices ... OK
+    ## Processing 90525 mz slices ... OK
 
 ## Selection of parameters for peak picking, alignment, and grouping
 
@@ -187,15 +207,15 @@ Please note that optimizing peak calling parameters with
 operation. It may take hours or even days (depending on the number of
 samples) before the optimization process ends!
 
-``` r
-peakpickingParameters <- getDefaultXcmsSetStartingParams('centWave')
-peakpickingParameters$min_peakwidth = c(0,10)
-peakpickingParameters$max_peakwidth = c(10,30)
-peakpickingParameters$ppm = c(0,10)
-```
-
 To perform the optimization just uncomment the code below. It will
 return the R script with optimized processing parameters.
+
+``` r
+#peakpickingParameters <- getDefaultXcmsSetStartingParams('centWave')
+#peakpickingParameters$min_peakwidth = c(0,10)
+#peakpickingParameters$max_peakwidth = c(10,30)
+#peakpickingParameters$ppm = c(0,10)
+```
 
 ``` r
 #resultPeakpicking <- optimizeXcmsSet(files = mzfiles, 
@@ -245,16 +265,119 @@ mtx <- featureValues(xset, method="maxint", value="into", filled=T)
 knitr::kable(head(mtx))
 ```
 
-|        | Sphin1.mzXML | Sphin2.mzXML | Total1.mzXML | Total2.mzXML |
-|:-------|-------------:|-------------:|-------------:|-------------:|
-| FT0001 |   1256154.43 |    913245.81 |           NA |           NA |
-| FT0002 |     58801.24 |     86856.81 |    861224.11 |     33162.95 |
-| FT0003 |    410858.05 |    134526.55 |     35017.65 |           NA |
-| FT0004 |   9202572.22 |  11043406.80 |  12731575.77 |   2247813.75 |
-| FT0005 |     93077.08 |    166715.26 |           NA |           NA |
-| FT0006 |    113533.52 |     59536.56 |           NA |           NA |
+|         | Blank7\_B\_23.mzXML | MS299\_HB\_38.mzXML | MS650\_HD\_346.mzXML | MS122\_MA\_307.mzXML | MS423\_MB\_628.mzXML |
+|:--------|--------------------:|--------------------:|---------------------:|---------------------:|---------------------:|
+| FT00001 |           1353.6443 |            992.3192 |             786.8389 |             858.8071 |            806.18414 |
+| FT00002 |           3119.5129 |            724.5263 |            2068.3573 |             146.3082 |             56.23612 |
+| FT00003 |          51652.7105 |          59957.6374 |           46196.7493 |           41635.2908 |          49026.81721 |
+| FT00004 |            255.9576 |            737.5624 |            1122.6784 |            1180.6987 |           1649.92238 |
+| FT00005 |           4420.6834 |           4915.5724 |            4860.1878 |            2665.9554 |           4412.18887 |
+| FT00006 |             32.2304 |           3396.0094 |            1792.0359 |             942.3421 |           3048.21657 |
+
+## Annotation
+
+Annotation is arguably the most tricky part of untargeted LS-MS
+analysis. Here we present a method to create annotation for lipid
+features obtained in the previous steps.
+
+``` r
+source("src/rt-mz.annotator.R")
+```
+
+Prepare the reduced version of `grs` table with a new column consisting
+of merged mz and rt values
+
+``` r
+grs <- as.data.frame(grs)
+grs <- grs[rownames(mtx), ]
+grs.short <- dplyr::select(grs, mzmed, rtmed)
+grs.short$id <- paste(round(grs.short$mzmed, 3), round(grs.short$rtmed, 3), sep = '_')
+grs.short <- grs.short[,c(3,1,2)]
+colnames(grs.short) <- c('id', 'mz', 'rt')
+knitr::kable(head(grs.short))
+```
+
+|         | id               |       mz |        rt |
+|:--------|:-----------------|---------:|----------:|
+| FT00001 | 113.133\_286.704 | 113.1329 | 286.70374 |
+| FT00002 | 116.053\_258.141 | 116.0528 | 258.14100 |
+| FT00003 | 121.028\_286.204 | 121.0283 | 286.20401 |
+| FT00004 | 121.101\_328.29  | 121.1014 | 328.29016 |
+| FT00005 | 122.032\_286.204 | 122.0317 | 286.20400 |
+| FT00006 | 123.056\_35.377  | 123.0556 |  35.37667 |
+
+`annotateByMass` function annotates lipid features by matching their
+exact mass against m/z values of existing lipids from LIPID MAPS
+database. Adducts can be defined by `ions` parameter, by default the
+function uses H, Na, NH4,K,NH4 + acetonitrile. Default ppm threshold in
+`annotateByMass` is 100, but it also can be changed with `ppm`
+parameter.
+
+``` r
+ann <- annotateByMass(grs.short, db = LMDB)
+dim(ann)
+```
+
+    ## [1] 215640     12
+
+The function yields a table containing LM ID of annotated feature along
+with formula, systematic name, corresponding ppm/ppmd and delta values.
+
+``` r
+knitr::kable(head(ann))
+```
+
+|        | id               |       mz |        rt | ion | LM\_ID       | EXACT\_MASS | FORMULA | SYSTEMATIC\_NAME                                                                                                                                                                                            | ABBREV |       ppm |     delta |       ppmd |
+|:-------|:-----------------|---------:|----------:|:----|:-------------|------------:|:--------|:------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|:-------|----------:|----------:|-----------:|
+| 0      | 113.133\_286.704 | 113.1329 | 286.70374 | H   | LMFA11000592 |    112.1252 | C8H16   | 3-methyl-1-heptene//cis-1,2-dimethylcyclohexane//trans-1,2-dimethylcyclohexane//1,4-dimethylcyclohexane//Ethylcyclohexane                                                                                   | \-     |  3.336934 | 0.0003775 |  -3.336934 |
+| 02     | 121.028\_286.204 | 121.0283 | 286.20401 | Na  | LMFA01030099 |     98.0368 | C5H6O2  | 2,4-pentadienoic acid//penta-2,4-dienoic acid                                                                                                                                                               | FA 5:2 | 18.635676 | 0.0022554 | -18.635676 |
+| 1      | 121.028\_286.204 | 121.0283 | 286.20401 | H   | LMFA01130006 |    120.0245 | C4H8O2S | 3-(methyl-sulfanyl)-propanoic acid                                                                                                                                                                          | \-     | 28.939494 | 0.0035026 |  28.939494 |
+| 110002 | 121.101\_328.29  | 121.1014 | 328.29016 | Na  | LMFA11000319 |     98.1095 | C7H14   | 1-Heptene//Methylcyclohexane//1,2-dimethylcyclopentane//Ethylcyclopentane                                                                                                                                   | \-     | 21.900800 | 0.0026522 | -21.900800 |
+| 01     | 121.101\_328.29  | 121.1014 | 328.29016 | NH4 | LMFA01100034 |    103.0633 | C4H9NO2 | 2S-amino-butanoic acid//4-amino-butanoic acid//2R-amino-butanoic acid//2R-methyl-3-amino-propanoic acid//2S-methyl-3-amino-propanoic acid//2-amino-2-methyl-propanoic acid//3-amino-3-methyl-propionic acid | \-     | 35.072335 | 0.0042472 | -35.072335 |
+| 03     | 123.056\_35.377  | 123.0556 |  35.37667 | K   | LMFA11000035 |     84.0939 | C6H12   | 2E-Hexene                                                                                                                                                                                                   | \-     | 11.744882 | 0.0014453 |  11.744882 |
+
+Keep annotated features only
+
+``` r
+grs.annotated <- filter(grs.short, id %in% unique(ann$id))
+grs.annotated <- tibble::rownames_to_column(grs.annotated, "xcmsID")
+grs.annotated <- full_join(grs.annotated[,c(1,2)], ann, by=c("id"="id"))
+
+mtx <- mtx[unique(grs.annotated$xcmsID),]
+```
 
 ## Filtering of peaks
+
+We will perform feature filtering based on blank samples to retain all
+features for which the median concentration ratio between biological
+samples and blank samples is greater than 2.
+
+``` r
+med.MS <- apply(mtx, 1, function(x) log10(median(x[grep("MS",colnames(mtx),perl=T)], na.rm=T)))
+med.blank <- apply(mtx, 1, function(x) log10(median(x[grep("Blank",colnames(mtx))], na.rm=T)))
+filter.blank <- (med.MS - med.blank) > log10(2)
+filter.blank[filter.blank==T] <- NA
+filter.blank[is.na(filter.blank)] <- T
+mtx <- mtx[filter.blank, c(2:5)]
+```
+
+The proportion of filtered features can be visualized using a
+mean-difference plot:
+
+``` r
+plot((med.MS+med.blank)/2, 
+     med.MS-med.blank, 
+     pch=21, las=1, bg="gray",  
+     col="dimgray", cex=1.2, lwd=0.4, xlab = "Sample Intensity", ylab = "Sample - Blank")
+
+points((med.MS[filter.blank]+med.blank[filter.blank])/2,
+       med.MS[filter.blank]-med.blank[filter.blank],
+       pch=21, bg="#B20F25", col="dimgray", cex=1.2, lwd=0.4)
+
+abline(h=log10(2),col="#B20F25")
+```
+
+![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-20-1.png)<!-- -->
 
 The code below removes all features that possess more than 30% of NA
 across samples.
@@ -281,101 +404,62 @@ mtx.imp <- missForest(mtx)
 mtx <- mtx.imp$ximp
 ```
 
-## Annotation
-
-Arguably, annotation is the most tricky part of untargeted LS-MS
-analysis. Here we present
-
-``` r
-source("src/rt-mz.annotator.R")
-```
-
-``` r
-grs <- as.data.frame(grs)
-grs <- grs[rownames(mtx), ]
-grs.short <- dplyr::select(grs, mzmed, rtmed)
-grs.short$id <- paste(round(grs.short$mzmed, 3), round(grs.short$rtmed, 3), sep = '_')
-grs.short <- grs.short[,c(3,1,2)]
-colnames(grs.short) <- c('id', 'mz', 'rt')
-knitr::kable(head(grs.short))
-```
-
-|        | id               |       mz |        rt |
-|:-------|:-----------------|---------:|----------:|
-| FT0002 | 200.128\_66.129  | 200.1278 |  66.12939 |
-| FT0003 | 200.146\_181.864 | 200.1455 | 181.86352 |
-| FT0004 | 200.165\_58.722  | 200.1646 |  58.72220 |
-| FT0008 | 201.127\_48.033  | 201.1275 |  48.03308 |
-| FT0011 | 201.149\_61.192  | 201.1486 |  61.19240 |
-| FT0012 | 201.16\_108.1    | 201.1599 | 108.10000 |
-
-``` r
-ann <- annotateByMass(grs.short, db = LMDB)
-```
-
-``` r
-knitr::kable(head(ann))
-```
-
-|       | id              |       mz |       rt | ion | LM\_ID            | EXACT\_MASS | FORMULA   | SYSTEMATIC\_NAME                                                 | ABBREV    |      ppm |     delta |     ppmd |
-|:------|:----------------|---------:|---------:|:----|:------------------|------------:|:----------|:-----------------------------------------------------------------|:----------|---------:|----------:|---------:|
-| 0     | 200.128\_66.129 | 200.1278 | 66.12939 | H   | FA0803\_C10H17NO3 |    199.1208 | C10H17NO3 | N-hexanoyl-homoserine lactone                                    | \-        | 1.293544 | 0.0002589 | 1.293544 |
-| 01    | 200.128\_66.129 | 200.1278 | 66.12939 | NH4 | FA0103\_C10H14O3  |    182.0943 | C10H14O3  | 5-oxo-7-decynoic acid                                            | FA 10:3;O | 1.528393 | 0.0003059 | 1.528393 |
-| 14206 | 200.128\_66.129 | 200.1278 | 66.12939 | NH4 | FA0106\_C10H14O3  |    182.0943 | C10H14O3  | 10-oxo-5,8-decadienoic acid                                      | FA 10:3;O | 1.528393 | 0.0003059 | 1.528393 |
-| 21000 | 200.128\_66.129 | 200.1278 | 66.12939 | NH4 | FA0701\_C10H14O3  |    182.0943 | C10H14O3  | furan-2-ylmethyl 3-methylbutanoate//furan-2-ylmethyl pentanoate  | WE 10:3;O | 1.528393 | 0.0003059 | 1.528393 |
-| 31000 | 200.128\_66.129 | 200.1278 | 66.12939 | NH4 | FA0704\_C10H14O3  |    182.0943 | C10H14O3  | 4R-hydroxy-2Z,5E-decadien-9R-olide                               | FA 10:3;O | 1.528393 | 0.0003059 | 1.528393 |
-| 41000 | 200.128\_66.129 | 200.1278 | 66.12939 | NH4 | PR0102\_C10H14O3  |    182.0943 | C10H14O3  | -//(1R,5R)-1,8,8-trimethyl-2-oxabicyclo\[3.2.1\]octane-3,6-dione | \-        | 1.528393 | 0.0003059 | 1.528393 |
-
-``` r
-grs.annotated <- filter(grs.short, id %in% unique(ann$id))
-mtx <- mtx[rownames(grs.annotated),]
-```
-
 ## Normalization
 
-We will use median normalization method to make samples comparable to
-each other
+In order to make samples comparable to each other we will utilize
+sample-specific normalization by wet weight.
+
+Change the column names first
 
 ``` r
-mtx.normalized <- apply(mtx, 2, function(x) x/median(x))
+colnames(mtx) <- unlist(strsplit(colnames(mtx), split = '.mzXML'))
 ```
+
+Load the matrix of wet weights for our samples
 
 ``` r
-mtx.normalized <- log10(mtx.normalized+1)
+wetw <- as.matrix(read.csv("POS.WETWEIGHT.csv", header=F, row.names=1))
 ```
+
+    ## Warning in read.table(file = file, header = header, sep = sep, quote = quote, :
+    ## incomplete final line found by readTableHeader on 'POS.WETWEIGHT.csv'
 
 ``` r
-NormalizationPlot <- function(data, title){
-    fill <- "#4271AE"
-    line <- "#1F3552"
-    data <- melt(data)
-    colnames(data) <- c("Variable", "Samples", "Abundance")
-    font.size <- 8
-    ggplot(data,aes(x = Abundance, y = Samples)) + 
-        geom_boxplot(fill = fill, colour = line, alpha = 0.7) + coord_flip() +
-        ggtitle(title) + theme_light(base_size = 12) + ylab(NULL)
-}
+wetw <- log10(wetw)
+knitr::kable(wetw)
 ```
+
+|                |        V2 |
+|:---------------|----------:|
+| MS122\_MA\_307 | 0.9590414 |
+| MS299\_HB\_38  | 1.0211893 |
+| MS423\_MB\_628 | 1.1461280 |
+| MS650\_HD\_346 | 1.1105897 |
+
+Perform the normalization
 
 ``` r
-options(repr.plot.width=15, repr.plot.height=7)
-p1 <- NormalizationPlot(log10(mtx), title = 'Before normalization')
-p2 <- NormalizationPlot(mtx.normalized, title = 'After normalization')
-grid.arrange(p1, p2, nrow = 1)
+wetw <- wetw[colnames(mtx), ]
+mtx <- log10(mtx)
+mtx.normalized <- t(apply(mtx, 1, function (x) x-wetw+mean(wetw)))
 ```
-
-    ## Warning: Removed 254 rows containing non-finite values (stat_boxplot).
-
-![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-23-1.png)<!-- -->
 
 ## Downstream analysis
 
+Processed matrix with quantified lipid abundances can be used for
+downstream analysis. We will apply two classical approaches (PCA and
+PLS-DA) to analyze the sample-specific differences between human and
+macaque lipid profiles.
+
 ### Principal Component Analysis (PCA)
 
-PCA projects original matrix of lipid abundances into low dimensional
-space. For a given matrix
+PCA is multivariate technique that extremely useful for classification
+purpose. The key idea of the method is to project original matrix of
+lipid abundances into low dimensional space. To perform dimensionality
+reduction PCA computes the reduced set of uncorrelated variables named
+`Principal Components`. For a given matrix
 ![X\_{n \\times m}](https://latex.codecogs.com/png.latex?X_%7Bn%20%5Ctimes%20m%7D "X_{n \times m}"),
-where samples are rows and samples are columns, principal component
+where features are rows and samples are columns, principal component
 vectors can be defined by finding eigenvectors of the following sample
 covariance matrix ![S](https://latex.codecogs.com/png.latex?S "S"):
 
@@ -398,19 +482,22 @@ To visualize relationships between samples in a new low dimensional
 space we will plot PC1 and PC2 against each other.
 
 ``` r
-Y <- pd$sample_group 
+Y <- pd$sample_group[2:5] 
 pca.data <- data.frame(PC1 = pca$x[, 1], PC2 = pca$x[, 2], class = Y)
 ggplot(data = pca.data, aes_string(x = "PC1", y = "PC2", color = "class", shape = "class")) + 
-    geom_point(size = 4) +
+    geom_point(size = 5) +
     theme_light()
 ```
 
-![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-25-1.png)<!-- -->
+![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-27-1.png)<!-- -->
 
 ### Partial Least-Squares Discriminant Analysis (PLS-DA)
 
-Mathematically, PLS-DA principal components can be obtained in a similar
-to PCA manner, as eigenvectors of a matrix of covariances between
+While both PCA and PLS-DA achieve dimensionality reduction computing the
+principal components, PLS-DA can be used rather for feature selection
+than for classification purpose. Mathematically, PLS-DA principal
+components can be obtained in a similar to PCA manner, as eigenvectors
+of a matrix of covariances between
 ![X](https://latex.codecogs.com/png.latex?X "X") and
 ![Y](https://latex.codecogs.com/png.latex?Y "Y"):
 
@@ -420,26 +507,46 @@ where ![C\_n](https://latex.codecogs.com/png.latex?C_n "C_n") and
 ![n](https://latex.codecogs.com/png.latex?n "n") represent a centering
 matrix and a total number of samples, respectively.
 
+We will use the sparse version of the algorithm - sPLS-DA. First of all,
+matrix of predictors and vector of responses should be defined
+
 ``` r
-X <- t(na.omit(mtx))
+X <- t(mtx.normalized)
 Y <- as.factor(Y)
-plsda.model <- plsda(X, Y, ncomp = 2)
+```
+
+Tune sPLS-DA parameters using Leave-One-Out cross validation
+
+``` r
+list.keepX <- seq(1, 100, 2)
+tune.splsda <- tune.splsda(X, Y, ncomp = 2, validation = 'loo', folds = 4, 
+                           progressBar = FALSE, dist = 'max.dist',
+                           test.keepX = list.keepX, nrepeat = 1)
+```
+
+Run sPLS-DA with optimized parameters
+
+``` r
+splsda.model <- splsda(X, Y, ncomp = 2, keepX = tune.splsda$choice.keepX)
 ```
 
     ## Warning in internal_wrapper.mint(X = X, Y = Y.mat, ncomp = ncomp, scale = scale, : At least one study has less than 5 samples, mean centering might
     ##     not do as expected
 
 ``` r
-plotIndiv(plsda.model, ind.names = FALSE, legend=TRUE, ellipse = TRUE)
+plotIndiv(splsda.model, ind.names = FALSE, legend=TRUE, ellipse = TRUE)
 ```
 
     ## Warning: It is deprecated to specify `guide = FALSE` to remove a guide. Please
     ## use `guide = "none"` instead.
 
-![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-26-1.png)<!-- -->
+![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-30-1.png)<!-- -->
+
+A vector of feature contributions can be retrieved from the model in the
+following way
 
 ``` r
-plsda.contributions <- selectVar(plsda.model, comp = 1)$value
+plsda.contributions <- selectVar(splsda.model, comp = 1)$value
 ```
 
 ## Software used

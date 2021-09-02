@@ -293,6 +293,7 @@ plotNet = function(d,new=T,col=NULL,cex=NULL,col.lines='black',xlab='RT (min)',y
     d$k = d$double.bonds
   if(is.null(col)){
     col = d$k-min(d$k) + 1
+    print(col)
     col = rainbow(max(col))[col]
   }
   if(is.null(cex)){
@@ -338,7 +339,13 @@ annotateByMass. = function(mz.rt,db,adduct,ppm=100,delta=0.1){
       d = db$EXACT_MASS[k]+adduct-mo
       p = d/(db$EXACT_MASS[k]+adduct)*1e6
       if(ifelse(!is.null(ppm),abs(p)<=ppm,abs(d)<=delta)){
-        r[[as.character(length(r))]] = cbind(mz.rt[i,],ion=names(adduct),db[k,c('LM_ID','EXACT_MASS','FORMULA', 'SYSTEMATIC_NAME', 'ABBREV')],ppm=abs(p),delta=abs(d),ppmd = p)
+        if (dim(db)[2] == 5){
+          db.colnames <- c('LM_ID','EXACT_MASS','FORMULA')
+        }
+        else{
+          db.colnames <- c('LM_ID','EXACT_MASS','FORMULA', 'SYSTEMATIC_NAME', 'ABBREV')
+        }
+        r[[as.character(length(r))]] = cbind(mz.rt[i,], ion=names(adduct), db[k, db.colnames], ppm=abs(p), delta=abs(d), ppmd = p)
       }else{
         if(d < 0){
           j = k

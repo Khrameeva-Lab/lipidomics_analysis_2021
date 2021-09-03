@@ -116,11 +116,10 @@ par(mfrow=c(1,2),las=1)
 chr <- chromatogram(xset, rt = c(405, 435), mz = c(797.58, 797.63), aggregationFun = "max", adjustedRtime = F)
 chr.adj <- chromatogram(xset, rt = c(405, 435), mz = c(797.58, 797.63), aggregationFun = "max", adjustedRtime = T)
 plot(chr, peakType = "none", col=group_colors[xset$sample_group], main = "Before alignment")
-legend(427, 32000, legend=c("Blank", "Human", "Macaque"), col=group_colors, lty=1:1, cex=0.95)
+legend(426, 32000, legend=c("Blank", "Human", "Macaque"), col=group_colors, lty=1:1, cex=0.45)
 plot(chr.adj, peakType = "none", col=group_colors[xset$sample_group], main = "After alignment")
-legend(427, 32000, legend=c("Blank", "Human", "Macaque"), col=group_colors, lty=1:1, cex=0.95)
+legend(426, 32000, legend=c("Blank", "Human", "Macaque"), col=group_colors, lty=1:1, cex=0.45)
 ```
-
 
 ## Peak grouping
 Once retention time correction is done one can proceed to the correspondence analysis of aligned peaks. The general idea of peak grouping is to identify peaks from the same ion across samples and group them together to form a lipid feature. In order to do this analysis, we will use Peak density method that accessible in `xcms` via `groupChromPeaks` function. 
@@ -186,6 +185,39 @@ grs <- featureDefinitions(xset)
 mtx <- featureValues(xset, method="maxint", value="into", filled=T) 
 
 knitr::kable(head(mtx))
+```
+
+Change the column names of `mtx` matrix
+```{r}
+colnames(mtx) <- unlist(strsplit(colnames(mtx), split = '.mzXML'))
+```
+
+To correctly normalize abundance matrix `mtx` further we will need the information about internal standards used in the experiment. The code below reads the example table containing TG(15:0-18:1-d7-15:0) standard description and extracts RT and m/z values. 
+```{r}
+standards <- read.csv("TG_standard.csv", header=T)
+std1.mz <- (standards[c(1),]$mzmin + standards[c(1),]$mzmax)/2
+std1.rtmin <- standards[c(1),]$rtmin 
+std1.rtmax <- standards[c(1),]$rtmax
+
+std2.mz <- (standards[c(2),]$mzmin + standards[c(2),]$mzmax)/2
+std2.rtmin <- standards[c(2),]$rtmin 
+std2.rtmax <- standards[c(2),]$rtmax
+
+knitr::kable(head(standards))
+```
+Using the obtained RT and m/z values of standard, the corresponding peaks can be retrieved from the data
+```{r}
+eps <- 0.05
+peak1 <- grs[grs$mzmed < std1.mz+eps & grs$mzmed > std1.mz-eps & grs$rtmed < std1.rtmax & grs$rtmed > std1.rtmin, ]
+peak2 <- grs[grs$mzmed < std2.mz+eps & grs$mzmed > std2.mz-eps & grs$rtmed < std2.rtmax & grs$rtmed > std2.rtmin, ]
+
+std.peaks <- c(rownames(peak1), rownames(peak2))
+std.peaks
+```
+
+Finally, compute the median abundances of peaks found within each sample. Those will come in handy for normalization procedure.
+```{r}
+div <- apply(mtx[std.peaks, c(2:5)], 2, function (x) median(x,na.rm=T))
 ```
 
 ## Annotation
@@ -280,14 +312,8 @@ mtx.imp <- missForest(mtx)
 mtx <- mtx.imp$ximp
 ```
 
-
 ## Normalization
-In order to make samples comparable to each other we will utilize sample-specific normalization by wet weight.
-
-Change the column names first
-```{r}
-colnames(mtx) <- unlist(strsplit(colnames(mtx), split = '.mzXML'))
-```
+In order to make samples comparable to each other we will utilize sample-specific normalization by wet weight and internal standards.
 
 Load the matrix of wet weights for our samples
 ```{r}
@@ -300,7 +326,9 @@ Perform the normalization
 ```{r}
 wetw <- wetw[colnames(mtx), ]
 mtx <- log10(mtx)
-mtx.normalized <- t(apply(mtx, 1, function (x) x-wetw+mean(wetw)))
+wetw.mean <- log10(mean(wetw))
+div.mean <- log10(mean(div))
+mtx.normalized <- t(apply(mtx, 1, function (x) x-log10(wetw)-log10(div)+wetw.mean+div.mean))
 ```
 
 ## Downstream analysis

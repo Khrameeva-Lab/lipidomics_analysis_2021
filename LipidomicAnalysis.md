@@ -161,9 +161,9 @@ par(mfrow=c(1,2),las=1)
 chr <- chromatogram(xset, rt = c(405, 435), mz = c(797.58, 797.63), aggregationFun = "max", adjustedRtime = F)
 chr.adj <- chromatogram(xset, rt = c(405, 435), mz = c(797.58, 797.63), aggregationFun = "max", adjustedRtime = T)
 plot(chr, peakType = "none", col=group_colors[xset$sample_group], main = "Before alignment")
-legend(427, 32000, legend=c("Blank", "Human", "Macaque"), col=group_colors, lty=1:1, cex=0.95)
+legend(426, 32000, legend=c("Blank", "Human", "Macaque"), col=group_colors, lty=1:1, cex=0.45)
 plot(chr.adj, peakType = "none", col=group_colors[xset$sample_group], main = "After alignment")
-legend(427, 32000, legend=c("Blank", "Human", "Macaque"), col=group_colors, lty=1:1, cex=0.95)
+legend(426, 32000, legend=c("Blank", "Human", "Macaque"), col=group_colors, lty=1:1, cex=0.45)
 ```
 
 ![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-8-1.png)<!-- -->
@@ -273,6 +273,62 @@ knitr::kable(head(mtx))
 | FT00004 |            255.9576 |            737.5624 |            1122.6784 |            1180.6987 |           1649.92238 |
 | FT00005 |           4420.6834 |           4915.5724 |            4860.1878 |            2665.9554 |           4412.18887 |
 | FT00006 |             32.2304 |           3396.0094 |            1792.0359 |             942.3421 |           3048.21657 |
+
+Change the column names of `mtx` matrix
+
+``` r
+colnames(mtx) <- unlist(strsplit(colnames(mtx), split = '.mzXML'))
+```
+
+To correctly normalize abundance matrix `mtx` further we will need the
+information about internal standards used in the experiment. The code
+below reads the example table containing TG(15:0-18:1-d7-15:0) standard
+description and extracts RT and m/z values.
+
+``` r
+standards <- read.csv("TG_standard.csv", header=T)
+```
+
+    ## Warning in read.table(file = file, header = header, sep = sep, quote = quote, :
+    ## incomplete final line found by readTableHeader on 'TG_standard.csv'
+
+``` r
+std1.mz <- (standards[c(1),]$mzmin + standards[c(1),]$mzmax)/2
+std1.rtmin <- standards[c(1),]$rtmin 
+std1.rtmax <- standards[c(1),]$rtmax
+
+std2.mz <- (standards[c(2),]$mzmin + standards[c(2),]$mzmax)/2
+std2.rtmin <- standards[c(2),]$rtmin 
+std2.rtmax <- standards[c(2),]$rtmax
+
+knitr::kable(head(standards))
+```
+
+| name              | class | adduct |    mzmin |    mzmax |   rtmin |    rtmax |
+|:------------------|:------|:-------|---------:|---------:|--------:|---------:|
+| 15:0-18:1-d7-15:0 | TG    | M+NH4  | 829.8000 | 829.8051 | 926.126 | 932.2879 |
+| 15:0-18:1-d7-15:0 | TG    | M+Na   | 834.7555 | 834.7605 | 926.126 | 932.2879 |
+
+Using the obtained RT and m/z values of standard, the corresponding
+peaks can be retrieved from the data
+
+``` r
+eps <- 0.05
+peak1 <- grs[grs$mzmed < std1.mz+eps & grs$mzmed > std1.mz-eps & grs$rtmed < std1.rtmax & grs$rtmed > std1.rtmin, ]
+peak2 <- grs[grs$mzmed < std2.mz+eps & grs$mzmed > std2.mz-eps & grs$rtmed < std2.rtmax & grs$rtmed > std2.rtmin, ]
+
+std.peaks <- c(rownames(peak1), rownames(peak2))
+std.peaks
+```
+
+    ## [1] "FT11602" "FT11737"
+
+Finally, compute the median abundances of peaks found within each
+sample. Those will come in handy for normalization procedure.
+
+``` r
+div <- apply(mtx[std.peaks, c(2:5)], 2, function (x) median(x,na.rm=T))
+```
 
 ## Annotation
 
@@ -417,7 +473,7 @@ points((med.MS[filter.blank]+med.blank[filter.blank])/2,
 abline(h=log10(2),col="#B20F25")
 ```
 
-![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-22-1.png)<!-- -->
+![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-26-1.png)<!-- -->
 
 The code below removes all features that possess more than 30% of NA
 across samples.
@@ -439,8 +495,6 @@ mtx.imp <- missForest(mtx)
     ##   missForest iteration 1 in progress...done!
     ##   missForest iteration 2 in progress...done!
     ##   missForest iteration 3 in progress...done!
-    ##   missForest iteration 4 in progress...done!
-    ##   missForest iteration 5 in progress...done!
 
 ``` r
 mtx <- mtx.imp$ximp
@@ -449,13 +503,7 @@ mtx <- mtx.imp$ximp
 ## Normalization
 
 In order to make samples comparable to each other we will utilize
-sample-specific normalization by wet weight.
-
-Change the column names first
-
-``` r
-colnames(mtx) <- unlist(strsplit(colnames(mtx), split = '.mzXML'))
-```
+sample-specific normalization by wet weight and internal standards.
 
 Load the matrix of wet weights for our samples
 
@@ -483,7 +531,9 @@ Perform the normalization
 ``` r
 wetw <- wetw[colnames(mtx), ]
 mtx <- log10(mtx)
-mtx.normalized <- t(apply(mtx, 1, function (x) x-wetw+mean(wetw)))
+wetw.mean <- log10(mean(wetw))
+div.mean <- log10(mean(div))
+mtx.normalized <- t(apply(mtx, 1, function (x) x-log10(wetw)-log10(div)+wetw.mean+div.mean))
 ```
 
 ## Downstream analysis
@@ -531,7 +581,7 @@ ggplot(data = pca.data, aes_string(x = "PC1", y = "PC2", color = "class", shape 
     theme_light()
 ```
 
-![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-29-1.png)<!-- -->
+![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-32-1.png)<!-- -->
 
 ### Partial Least-Squares Discriminant Analysis (PLS-DA)
 
@@ -582,7 +632,7 @@ plotIndiv(splsda.model, ind.names = FALSE, legend=TRUE, ellipse = TRUE)
     ## Warning: It is deprecated to specify `guide = FALSE` to remove a guide. Please
     ## use `guide = "none"` instead.
 
-![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-32-1.png)<!-- -->
+![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-35-1.png)<!-- -->
 
 A vector of feature contributions can be retrieved from the model in the
 following way

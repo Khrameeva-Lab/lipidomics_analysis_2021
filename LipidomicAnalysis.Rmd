@@ -38,14 +38,13 @@ library(reshape2)
 library(gridExtra)
 ```
 
-
 ## Data import
 We will demonstrate the key concepts of LC-MS untargeted lipidomic analysis on the example of human and macaque lipidomic profiles from Dorsolateral Prefrontal Cortex. 
-Raw MS files from this project converted into the .mzXML format can be downloaded into the current directory using the following code:
+Raw MS files (~1.87 GB) from this project converted into the .mzXML format can be downloaded into the current directory using the following code:
 ```{r}
-#url <- "http://arcuda.skoltech.ru/~d.smirnov/sampledata.tar.gz"
-#download.file(url, destfile = 'sampledata.tar.gz')
-#untar('sampledata.tar.gz')
+url <- "https://makarich.fbb.msu.ru/khrameeva/brainmap/sampledata.tar.gz"
+download.file(url, destfile = 'sampledata.tar.gz', method = "curl")
+untar('sampledata.tar.gz')
 ```
 
 For convenience, raw MS files located in the `sampledata/` folder are organized into two subfolders according to the species (2 files per species + blank measurements). The code below will create a table with sample metadata

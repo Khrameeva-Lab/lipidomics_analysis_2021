@@ -39,14 +39,14 @@ library(gridExtra)
 
 We will demonstrate the key concepts of LC-MS untargeted lipidomic
 analysis on the example of human and macaque lipidomic profiles from
-Dorsolateral Prefrontal Cortex. Raw MS files from this project converted
-into the .mzXML format can be downloaded into the current directory
-using the following code:
+Dorsolateral Prefrontal Cortex. Raw MS files (\~1.87 GB) from this
+project converted into the .mzXML format can be downloaded into the
+current directory using the following code:
 
 ``` r
-#url <- "http://arcuda.skoltech.ru/~d.smirnov/sampledata.tar.gz"
-#download.file(url, destfile = 'sampledata.tar.gz')
-#untar('sampledata.tar.gz')
+url <- "https://makarich.fbb.msu.ru/khrameeva/brainmap/sampledata.tar.gz"
+download.file(url, destfile = 'sampledata.tar.gz', method = "curl")
+untar('sampledata.tar.gz')
 ```
 
 For convenience, raw MS files located in the `sampledata/` folder are
@@ -495,6 +495,7 @@ mtx.imp <- missForest(mtx)
     ##   missForest iteration 1 in progress...done!
     ##   missForest iteration 2 in progress...done!
     ##   missForest iteration 3 in progress...done!
+    ##   missForest iteration 4 in progress...done!
 
 ``` r
 mtx <- mtx.imp$ximp

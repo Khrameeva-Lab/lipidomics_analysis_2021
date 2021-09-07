@@ -293,7 +293,7 @@ plotNet = function(d,new=T,col=NULL,cex=NULL,col.lines='black',xlab='RT (min)',y
     d$k = d$double.bonds
   if(is.null(col)){
     col = d$k-min(d$k) + 1
-    print(col)
+    #print(col)
     col = rainbow(max(col))[col]
   }
   if(is.null(cex)){

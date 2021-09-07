@@ -44,15 +44,14 @@ project converted into the .mzXML format can be downloaded into the
 current directory using the following code:
 
 ``` r
-url <- "https://makarich.fbb.msu.ru/khrameeva/brainmap/sampledata.tar.gz"
-download.file(url, destfile = 'sampledata.tar.gz', method = "curl")
-untar('sampledata.tar.gz')
+#url <- "https://makarich.fbb.msu.ru/khrameeva/brainmap/sampledata.tar.gz"
+#download.file(url, destfile = 'sampledata.tar.gz', method = "curl")
+#untar('sampledata.tar.gz')
 ```
 
-For convenience, raw MS files located in the `sampledata/` folder are
-organized into two subfolders according to the species (2 files per
-species + blank measurements). The code below will create a table with
-sample metadata
+Raw MS files located in the `sampledata/` folder are organized into two
+subfolders according to the species (2 files per species + blank
+measurements). The code below will create a table with sample metadata
 
 ``` r
 mzfiles <- list.files('sampledata/', recursive = TRUE, full.names = TRUE, pattern = '.mzXML')
@@ -210,12 +209,16 @@ samples) before the optimization process ends!
 To perform the optimization just uncomment the code below. It will
 return the R script with optimized processing parameters.
 
+Set up default parameters for peak picking optimization procedure:
+
 ``` r
 #peakpickingParameters <- getDefaultXcmsSetStartingParams('centWave')
 #peakpickingParameters$min_peakwidth = c(0,10)
 #peakpickingParameters$max_peakwidth = c(10,30)
 #peakpickingParameters$ppm = c(0,10)
 ```
+
+Optimize peak picking parameters:
 
 ``` r
 #resultPeakpicking <- optimizeXcmsSet(files = mzfiles, 
@@ -224,7 +227,11 @@ return the R script with optimized processing parameters.
 #                                     subdir = NULL)
 
 #optimizedXcmsSetObject <- resultPeakpicking$best_settings$xset
+```
 
+Optimize retention time correction and grouping parameters:
+
+``` r
 #retcorGroupParameters <- getDefaultRetGroupStartingParams()
 #resultRetcorGroup <- optimizeRetGroup(xset = optimizedXcmsSetObject, 
 #                                      params = retcorGroupParameters,
@@ -249,7 +256,7 @@ xset <- fillChromPeaks(xset)
     ## Defining peak areas for filling-in .... OK
     ## Start integrating peak areas from original files
 
-Please note that `fillChromPeaks` can not impute all the gaps in MS
+Please note that `fillChromPeaks` may not impute all the gaps in MS
 data. The remaining missing values will be further removed/imputed in
 the section “Filtering of peaks” below.
 
@@ -281,53 +288,59 @@ colnames(mtx) <- unlist(strsplit(colnames(mtx), split = '.mzXML'))
 ```
 
 To correctly normalize abundance matrix `mtx` further we will need the
-information about internal standards used in the experiment. The code
-below reads the example table containing TG(15:0-18:1-d7-15:0) standard
-description and extracts RT and m/z values.
+information about internal standard used in the experiment. The code
+below will extract peaks corresponding to TG(15:0-18:1-d7-15:0).
 
 ``` r
-standards <- read.csv("TG_standard.csv", header=T)
+source("src/rt-mz.annotator.R") # load the annotator function
 ```
 
-    ## Warning in read.table(file = file, header = header, sep = sep, quote = quote, :
-    ## incomplete final line found by readTableHeader on 'TG_standard.csv'
+Generate TAG that corresponds to the standard:
 
 ``` r
-std1.mz <- (standards[c(1),]$mzmin + standards[c(1),]$mzmax)/2
-std1.rtmin <- standards[c(1),]$rtmin 
-std1.rtmax <- standards[c(1),]$rtmax
-
-std2.mz <- (standards[c(2),]$mzmin + standards[c(2),]$mzmax)/2
-std2.rtmin <- standards[c(2),]$rtmin 
-std2.rtmax <- standards[c(2),]$rtmax
-
-knitr::kable(head(standards))
+std = generateTGL(15+18+15,1)
+std$FORMULA = 'C51H89D7O6' #change 7 H to 7 D
+std$EXACT_MASS = calcExactMass(std$FORMULA) # recalculate the exact mass using updated formula
+knitr::kable(std)
 ```
 
-| name              | class | adduct |    mzmin |    mzmax |   rtmin |    rtmax |
-|:------------------|:------|:-------|---------:|---------:|--------:|---------:|
-| 15:0-18:1-d7-15:0 | TG    | M+NH4  | 829.8000 | 829.8051 | 926.126 | 932.2879 |
-| 15:0-18:1-d7-15:0 | TG    | M+Na   | 834.7555 | 834.7605 | 926.126 | 932.2879 |
+|          |   n |   k | FORMULA    | EXACT\_MASS | LM\_ID    |
+|:---------|----:|----:|:-----------|------------:|:----------|
+| C51H96O6 |  48 |   1 | C51H89D7O6 |    811.7646 | TAG\_48:1 |
 
-Using the obtained RT and m/z values of standard, the corresponding
-peaks can be retrieved from the data
+Using `annotateByMass` function we will find all the peaks in the data
+that matched internal standard by exact mass value and filter them based
+on the elution time. In this function adducts can be defined by `ions`
+parameter, by default the function uses H, Na, NH4, K and aNH4. We will
+specify ppm threshold for acceptable m/z deviation in `annotateByMass`
+to 20.
 
 ``` r
-eps <- 0.05
-peak1 <- grs[grs$mzmed < std1.mz+eps & grs$mzmed > std1.mz-eps & grs$rtmed < std1.rtmax & grs$rtmed > std1.rtmin, ]
-peak2 <- grs[grs$mzmed < std2.mz+eps & grs$mzmed > std2.mz-eps & grs$rtmed < std2.rtmax & grs$rtmed > std2.rtmin, ]
-
-std.peaks <- c(rownames(peak1), rownames(peak2))
-std.peaks
+std.ann = annotateByMass(data.frame(id=rownames(grs),rt=grs$rtmed,mz=grs$mzmed), std, ppm=20)
+std.ann = std.ann[std.ann$rt > 600, ] # Although we don't know the exact RT value we know that TAGs elute after 10 minutes
+knitr::kable(std.ann)
 ```
 
-    ## [1] "FT11602" "FT11737"
+|     | id      |       rt |       mz | ion  | LM\_ID    | EXACT\_MASS | FORMULA    |      ppm |     delta |      ppmd |
+|:----|:--------|---------:|---------:|:-----|:----------|------------:|:-----------|---------:|----------:|----------:|
+| 1   | FT11076 | 935.0534 | 812.7639 | H    | TAG\_48:1 |    811.7646 | C51H89D7O6 | 9.856172 | 0.0080108 |  9.856172 |
+| 01  | FT11602 | 928.0410 | 829.8016 | NH4  | TAG\_48:1 |    811.7646 | C51H89D7O6 | 3.813919 | 0.0031648 | -3.813919 |
+| 11  | FT11737 | 927.5400 | 834.7573 | Na   | TAG\_48:1 |    811.7646 | C51H89D7O6 | 4.137053 | 0.0034534 | -4.137053 |
+| 03  | FT12188 | 928.0410 | 850.7315 | K    | TAG\_48:1 |    811.7646 | C51H89D7O6 | 4.402539 | 0.0037454 | -4.402539 |
+| 04  | FT12700 | 928.0410 | 870.8291 | aNH4 | TAG\_48:1 |    811.7646 | C51H89D7O6 | 4.700613 | 0.0040934 | -4.700613 |
+
+H-adduct looks suspicious (high ppm, different rt), so we can exclude it
+from analysis:
+
+``` r
+std.ann = std.ann[std.ann$ppm < 5, ]
+```
 
 Finally, compute the median abundances of peaks found within each
 sample. Those will come in handy for normalization procedure.
 
 ``` r
-div <- apply(mtx[std.peaks, c(2:5)], 2, function (x) median(x,na.rm=T))
+div <- apply(mtx[std.ann$id, c(2:5)], 2, function (x) median(x, na.rm = T))
 ```
 
 ## Annotation
@@ -336,78 +349,132 @@ Annotation is arguably the most tricky part of untargeted LS-MS
 analysis. Here we present a method to create annotation for lipid
 features obtained in the previous steps.
 
-``` r
-source("src/rt-mz.annotator.R")
-```
-
-Prepare the reduced version of `grs` table with a new column consisting
-of merged mz and rt values
+To obtain the full annotation set we will again utilize `annotateByMass`
+function, but this time m/z values of peaks will be matched to exact
+masses of existing lipids from LIPID MAPS database.
 
 ``` r
-grs <- as.data.frame(grs)
-grs <- grs[rownames(mtx), ]
-grs.short <- dplyr::select(grs, mzmed, rtmed)
-grs.short$id <- paste(round(grs.short$mzmed, 3), round(grs.short$rtmed, 3), sep = '_')
-grs.short <- grs.short[,c(3,1,2)]
-colnames(grs.short) <- c('id', 'mz', 'rt')
-knitr::kable(head(grs.short))
+ann <- annotateByMass(data.frame(id=rownames(grs),rt=grs$rtmed,mz=grs$mzmed), db = LMDB, ppm = 20)
+knitr::kable(head(ann))
 ```
 
-|         | id               |       mz |        rt |
-|:--------|:-----------------|---------:|----------:|
-| FT00001 | 113.133\_286.704 | 113.1329 | 286.70374 |
-| FT00002 | 116.053\_258.141 | 116.0528 | 258.14100 |
-| FT00003 | 121.028\_286.204 | 121.0283 | 286.20401 |
-| FT00004 | 121.101\_328.29  | 121.1014 | 328.29016 |
-| FT00005 | 122.032\_286.204 | 122.0317 | 286.20400 |
-| FT00006 | 123.056\_35.377  | 123.0556 |  35.37667 |
+|       | id      |         rt |       mz | ion | LM\_ID       | EXACT\_MASS | FORMULA | SYSTEMATIC\_NAME                                                                                                                     | ABBREV  |       ppm |     delta |       ppmd |
+|:------|:--------|-----------:|---------:|:----|:-------------|------------:|:--------|:-------------------------------------------------------------------------------------------------------------------------------------|:--------|----------:|----------:|-----------:|
+| 0     | FT00001 | 286.703735 | 113.1329 | H   | LMFA11000592 |    112.1252 | C8H16   | 3-methyl-1-heptene//cis-1,2-dimethylcyclohexane//trans-1,2-dimethylcyclohexane//1,4-dimethylcyclohexane//Ethylcyclohexane            | \-      |  3.336934 | 0.0003775 |  -3.336934 |
+| 02    | FT00003 | 286.204010 | 121.0283 | Na  | LMFA01030099 |     98.0368 | C5H6O2  | 2,4-pentadienoic acid//penta-2,4-dienoic acid                                                                                        | FA 5:2  | 18.635676 | 0.0022554 | -18.635676 |
+| 03    | FT00006 |  35.376669 | 123.0556 | K   | LMFA11000035 |     84.0939 | C6H12   | 2E-Hexene                                                                                                                            | \-      | 11.744882 | 0.0014453 |  11.744882 |
+| 1     | FT00012 |   5.270351 | 125.0961 | H   | LMFA06000034 |    124.0888 | C8H12O  | 2,4-octadienal//5,7-octadienal//2,4-Dimethyl-2E,4E-hexadienal//2E,7-Octadienal//2E,6E-Octadienal//2E,4Z-Octadienal//2E,6Z-Octadienal | FAL 8:2 |  0.435522 | 0.0000545 |  -0.435522 |
+| 2     | FT00012 |   5.270351 | 125.0961 | H   | LMFA12000017 |    124.0888 | C8H12O  | 3E,5E-Octadien-2-one//6-Methyl-3E,5-heptadien-2-one                                                                                  | \-      |  0.435522 | 0.0000545 |  -0.435522 |
+| 11002 | FT00012 |   5.270351 | 125.0961 | Na  | LMFA05000111 |    102.1045 | C6H14O  | 3-Methylpentan-1-ol//Hexan-1-ol//Hexan-3S-ol//Hexan-2-ol//3-methyl-3-Pentanol//4-Methyl-pentan-1-ol                                  | FOH 6:0 | 19.285398 | 0.0024125 | -19.285398 |
 
-`annotateByMass` function annotates lipid features by matching their
-exact mass against m/z values of existing lipids from LIPID MAPS
-database. Adducts can be defined by `ions` parameter, by default the
-function uses H, Na, NH4,K,NH4 + acetonitrile. Default ppm threshold in
-`annotateByMass` is 100, but it also can be changed with `ppm`
-parameter.
+Here `ppmd` is calculated as
+
+![ppmd = (1 - )
+1e^6](https://render.githubusercontent.com/render/math?math=%5Cdisplaystyle+ppmd+%3D+%281+-+%5Cfrac%7BMZ%7D%7BEM+-+Adduct%7D%29+%5Ccdot+1e%5E6%0A)
+
+where ![MZ](https://latex.codecogs.com/png.latex?MZ "MZ") is a peak m/z
+value, ![EM](https://latex.codecogs.com/png.latex?EM "EM") is an exact
+mass of known lipid from LIPID MAPS database and
+![Adduct](https://latex.codecogs.com/png.latex?Adduct "Adduct")
+represents the adduct mass.
+
+Next we will explore the distribution of `ppmd` values from the
+annotation table:
 
 ``` r
-ann <- annotateByMass(grs.short, db = LMDB)
-dim(ann)
+h = hist(ann$ppmd, 1000, main = 'ppmd distribution', xlab = 'ppmd')
+mode = which.max(h$counts)
+mode = h$breaks[mode]/2 + h$breaks[mode+1]/2
+abline(v = mode, col = 'red')
 ```
 
-    ## [1] 215640     12
+![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-22-1.png)<!-- -->
+Most likely there is a m/z shift around -4 ppm (shown by red vertical
+line), it also corresponds well with `ppmd` of the internal standard.
 
-The function yields a table containing LM ID of annotated feature along
-with formula, systematic name, corresponding ppm/ppmd and delta values.
+Display the value of m/z shift
 
 ``` r
-grs.annotated <- filter(grs.short, id %in% unique(ann$id))
-grs.annotated <- tibble::rownames_to_column(grs.annotated, "xcmsID")
-grs.annotated <- full_join(grs.annotated[,c(1,2)], ann, by=c("id"="id"))
-knitr::kable(head(grs.annotated))
+mode
 ```
 
-| xcmsID  | id               |       mz |        rt | ion | LM\_ID       | EXACT\_MASS | FORMULA | SYSTEMATIC\_NAME                                                                                                                                                                                            | ABBREV |       ppm |     delta |       ppmd |
-|:--------|:-----------------|---------:|----------:|:----|:-------------|------------:|:--------|:------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|:-------|----------:|----------:|-----------:|
-| FT00001 | 113.133\_286.704 | 113.1329 | 286.70374 | H   | LMFA11000592 |    112.1252 | C8H16   | 3-methyl-1-heptene//cis-1,2-dimethylcyclohexane//trans-1,2-dimethylcyclohexane//1,4-dimethylcyclohexane//Ethylcyclohexane                                                                                   | \-     |  3.336934 | 0.0003775 |  -3.336934 |
-| FT00003 | 121.028\_286.204 | 121.0283 | 286.20401 | Na  | LMFA01030099 |     98.0368 | C5H6O2  | 2,4-pentadienoic acid//penta-2,4-dienoic acid                                                                                                                                                               | FA 5:2 | 18.635676 | 0.0022554 | -18.635676 |
-| FT00003 | 121.028\_286.204 | 121.0283 | 286.20401 | H   | LMFA01130006 |    120.0245 | C4H8O2S | 3-(methyl-sulfanyl)-propanoic acid                                                                                                                                                                          | \-     | 28.939494 | 0.0035026 |  28.939494 |
-| FT00004 | 121.101\_328.29  | 121.1014 | 328.29016 | Na  | LMFA11000319 |     98.1095 | C7H14   | 1-Heptene//Methylcyclohexane//1,2-dimethylcyclopentane//Ethylcyclopentane                                                                                                                                   | \-     | 21.900800 | 0.0026522 | -21.900800 |
-| FT00004 | 121.101\_328.29  | 121.1014 | 328.29016 | NH4 | LMFA01100034 |    103.0633 | C4H9NO2 | 2S-amino-butanoic acid//4-amino-butanoic acid//2R-amino-butanoic acid//2R-methyl-3-amino-propanoic acid//2S-methyl-3-amino-propanoic acid//2-amino-2-methyl-propanoic acid//3-amino-3-methyl-propionic acid | \-     | 35.072335 | 0.0042472 | -35.072335 |
-| FT00006 | 123.056\_35.377  | 123.0556 |  35.37667 | K   | LMFA11000035 |     84.0939 | C6H12   | 2E-Hexene                                                                                                                                                                                                   | \-     | 11.744882 | 0.0014453 |  11.744882 |
+    ## [1] -3.925
+
+Take only annotation within mode +- 10
+
+``` r
+ann = ann[ann$ppmd > (mode - 10) & ann$ppmd < (mode + 10), ]
+```
+
+Check annotation uniqueness
+
+``` r
+annotation.freq <- table(table(ann$id))
+print(paste(annotation.freq[1], "peaks have unique annotation"))
+```
+
+    ## [1] "3590 peaks have unique annotation"
+
+``` r
+print(paste(annotation.freq[2], "peaks are annotated with two lipids"))
+```
+
+    ## [1] "2182 peaks are annotated with two lipids"
+
+Add two columns with lipid categories and classes to `ann` table
+
+``` r
+ann$category = substr(ann$LM_ID,3,4)
+ann$class = substr(ann$LM_ID,3,6)
+```
+
+Display the number of lipids annotated uniquely on category level
+
+``` r
+annc = unique(ann[,c('id','rt','mz','category')])
+annc.freq <- table(table(annc$id))
+print(paste(annc.freq[1], "lipids have unique annotation on category level"))
+```
+
+    ## [1] "5845 lipids have unique annotation on category level"
+
+We will retain features with unique annotation to build rt-mz plot:
+
+``` r
+t = table(annc$id) # count the annotation variants for all features
+annc = annc[annc$id %in% names(t)[t==1],] # filter out all features with multiply annotation names
+cats = unique(annc$category) # get the list of lipid categories
+cols = setNames(RColorBrewer::brewer.pal(length(cats),'Set1'),cats) # set color palette
+annc <- annc[annc$rt > 7 & annc$rt < 1200, ] # specify the range of RT 
+plot(annc$rt,annc$mz,pch=16,col=cols[annc$category],xlab='RT', ylab='m/z', xlim = c(7, 1330), bty='n')
+legend('topright',pch=16,col=cols,legend=cats) 
+```
+
+![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-28-1.png)<!-- -->
+
+Print the number of lipids annotated uniquely on class level
+
+``` r
+annc <- unique(ann[,c('id','rt','mz','class')])
+annc.freq <- table(table(annc$id))
+print(paste(annc.freq[1], "lipids have unique annotation on class level"))
+```
+
+    ## [1] "4567 lipids have unique annotation on class level"
 
 Keep annotated features only
 
 ``` r
-mtx <- mtx[unique(grs.annotated$xcmsID),]
+mtx <- mtx[unique(ann$id),]
 ```
 
 Also one can try to perform annotation for specific lipid class only. We
 will illustrate such approach using a custom TAG generator that creates
-a table of triacylglycerols (TAG\_10:0 - TAG\_70:8) with corresponding
+a table of triacylglycerols (TAG(10:0) - TAG(70:8)) with corresponding
 lipid formula and exact masses.
 
 ``` r
-tags = generateTGL(10:70,0:8) # the generator is quite simple, some tags it mage are meaningless (like 10:8)
+tags = generateTGL(10:70,0:8) 
 electron.mass = 0.00054858
 knitr::kable(head(tags))
 ```
@@ -425,22 +492,71 @@ We will use the same `annotateByMass` function as a before, but with
 previously generated TAG table instead of full LIPIDMAPS database.
 
 ``` r
-ann2 = annotateByMass(grs.short,
+ann2 = annotateByMass(data.frame(id=rownames(grs),rt=grs$rtmed,mz=grs$mzmed),
                       tags,
-                      ions = c(NH4=calcExactMass('NH4')-electron.mass),
-                      ppm=10)
+                      ions = c(NH4=calcExactMass('NH4') - electron.mass),
+                      ppm=20)
 
 knitr::kable(head(ann2))
 ```
 
-|     | id               |       mz |        rt | ion | LM\_ID    | EXACT\_MASS | FORMULA  |      ppm |     delta |      ppmd |
-|:----|:-----------------|---------:|----------:|:----|:----------|------------:|:---------|---------:|----------:|----------:|
-| 0   | 290.161\_37.195  | 290.1612 |  37.19504 | NH4 | TAG\_10:1 |    272.1260 | C13H20O6 | 4.632649 | 0.0013442 | -4.632649 |
-| 1   | 304.084\_60.23   | 304.0841 |  60.22953 | NH4 | TAG\_12:8 |    286.0477 | C15H10O6 | 8.201367 | 0.0024939 | -8.201367 |
-| 2   | 318.193\_41.184  | 318.1925 |  41.18413 | NH4 | TAG\_12:1 |    300.1573 | C15H24O6 | 4.487987 | 0.0014280 | -4.487987 |
-| 3   | 358.225\_50.211  | 358.2254 |  50.21149 | NH4 | TAG\_15:2 |    340.1886 | C18H28O6 | 8.342262 | 0.0029884 | -8.342262 |
-| 4   | 366.192\_227.582 | 366.1916 | 227.58200 | NH4 | TAG\_16:5 |    348.1573 | C19H24O6 | 1.326931 | 0.0004859 | -1.326931 |
-| 5   | 442.318\_200.285 | 442.3181 | 200.28549 | NH4 | TAG\_21:2 |    424.2825 | C24H40O6 | 4.064942 | 0.0017980 | -4.064942 |
+|     | id      |        rt |       mz | ion | LM\_ID    | EXACT\_MASS | FORMULA  |       ppm |     delta |       ppmd |
+|:----|:--------|----------:|---------:|:----|:----------|------------:|:---------|----------:|----------:|-----------:|
+| 0   | FT01070 |  37.19504 | 290.1612 | NH4 | TAG\_10:1 |    272.1260 | C13H20O6 |  4.632649 | 0.0013442 |  -4.632649 |
+| 1   | FT01208 |  60.22953 | 304.0841 | NH4 | TAG\_12:8 |    286.0477 | C15H10O6 |  8.201367 | 0.0024939 |  -8.201367 |
+| 2   | FT01355 |  41.18413 | 318.1925 | NH4 | TAG\_12:1 |    300.1573 | C15H24O6 |  4.487987 | 0.0014280 |  -4.487987 |
+| 3   | FT01815 |  50.21149 | 358.2254 | NH4 | TAG\_15:2 |    340.1886 | C18H28O6 |  8.342262 | 0.0029884 |  -8.342262 |
+| 4   | FT01816 |  53.73159 | 358.2288 | NH4 | TAG\_15:2 |    340.1886 | C18H28O6 | 17.826423 | 0.0063858 | -17.826423 |
+| 5   | FT01953 | 227.58200 | 366.1916 | NH4 | TAG\_16:5 |    348.1573 | C19H24O6 |  1.326931 | 0.0004859 |  -1.326931 |
+
+`ann2` annotation table contains a number of peaks that have non-unique
+annotation. We will plot the rt-m/z scatter plot and highlight the area
+of correct TAGs by red rectangle
+
+``` r
+plot(ann2$rt,ann2$mz, xlab = 'RT', ylab = 'm/z')
+rect(820, 700, 1050, 1000, border = 'red', col=NA)
+```
+
+![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-33-1.png)<!-- -->
+
+Since the plot above showed that there are additional peaks in obtained
+TAG annotation table, we will try to exclude them using an approach
+based on grid-like pattern in rt-mz coordinates (please see the
+manuscript for the method description).
+
+``` r
+nets <- lookForNets(ann2,rt.win=c(1,30)) # by default rt.win is in mins, we will change it to secs
+```
+
+    ##  1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99 100 101 102 103 104 105 106 107 108 109 110 111 112 113 114 115 116 117 118 119 120 121 122 123 124 125 126 127 128 129 130 131 132 133 134 135 136 137 138 139 140 141 142 143 144 145 146 147 148 149 150 151 152 153 154 155 156 157 158 159 160 161 162 163 164 165 166 167 168 169 170 171 172 173 174 175 176 177 178 179 180 181 182 183 184 185 186 187 188 189 190 191 192 193 194 195 196 197 198 199 200 201 202 203 204 205 206 207 208 209 210 211 212 213 214 215 216 217 218 219 220 221 222 223 224 225 226 227 228 229 230 231 232 233 234 235 236 237 238 239 240 241 242 243 244 245 246 247 248 249 250 251 252 253 254 255 256 257 258 259 260 261 262 263 264 265 266 267 268 269 270 271 272 273 274 275 276 277 278 279 280 281 282 283 284 285 286 287 288 289 290 291 292 293 294 295 296 297 298 299 300 301 302 303 304 305 306 307 308 309 310 311 312 313 314 315 316 317 318 319 320 321 322 323 324 325 326 327 328 329 330 331 332 333 334 335 336 337 338 339 340 341 342 343 344 345 346 347 348 349 350 351 352 353 354 355 356 357 358 359 360 361 362 363 364 365 366 367 368 369 370 371 372 373 374 375 376 377 378 379 380 381 382 383 384 385 386 387 388 389 390 391 392 393 394 395 396 397 398 399 400 401 402 403 404 405 406 407 408 409 410 411 412 413 414 415 416 417 418 419 420 421 422 423 424 425 426 427 428 429 430 431 432 433 434 435 436 437 438 439 440 441 442 443 444 445 446 447 448 449 450 451 452 453 454 455 456 457 458 459 460 461 462 463 464 465 466 467 468 469 470 471 472 473 474 475 476 477 478 479 480 481 482 483 484 485 486 487 488 489 490 491 492 493 494 495 496 497 498 499 500 501 502 503 504 505 506 507 508 509 510 511 512 513 514 515 516 517 518 519 520 521 522 523 524 525 526 527 528 529 530 531 532 533 534 535 536 537 538 539 540 541 542 543 544 545 546 547 548 549 550 551 552 553 554 555 556 557 558 559 560 561 562 563 564 565 566 567 568 569 570 571 572 573 574 575 576 577 578 579 580 581 582 583 584 585 586 587 588 589 590 591 592 593 594 595 596 597 598 599 600 601 602 603 604 605 606 607 608 609 610 611 612 613 614 615 616 617 618 619 620 621 622 623 624 625 626 627 628 629 630 631 632 633 634 635 636 637 638 639 640 641 642 643 644 645 646 647 648
+
+``` r
+net.table <- sort(table(nets$start)) # count the number of features per net 
+start <- names(net.table)[length(names(net.table))] # get id of the biggest net
+tags = nets[!is.na(nets$start) & nets$start==as.numeric(start),] # select the biggest net
+plotNet(tags)
+```
+
+![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-34-1.png)<!-- -->
+The net looks quite noisy, so we will plot it again, but with circle
+size based on value of `ppmd` deviation of peaks
+
+``` r
+plot(tags$rt, tags$mz, cex = abs(tags$ppmd-mode)/6, xlab = 'RT', ylab = 'm/z')
+```
+
+![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-35-1.png)<!-- -->
+
+Filter out the peaks with high `ppmd` deviation
+
+``` r
+net <- plotNet(tags[abs(tags$ppmd-mode) < 5, ])
+```
+
+![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-36-1.png)<!-- -->
+The net looks better, but there are still some peaks that pretends to be
+same lipid, so the filtering prosedure needs manual curation.
 
 ## Filtering of peaks
 
@@ -473,7 +589,7 @@ points((med.MS[filter.blank]+med.blank[filter.blank])/2,
 abline(h=log10(2),col="#B20F25")
 ```
 
-![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-26-1.png)<!-- -->
+![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-38-1.png)<!-- -->
 
 The code below removes all features that possess more than 30% of NA
 across samples.
@@ -504,49 +620,40 @@ mtx <- mtx.imp$ximp
 ## Normalization
 
 In order to make samples comparable to each other we will utilize
-sample-specific normalization by wet weight and internal standards.
+sample-specific normalization by wet weight and internal standard.
 
 Load the matrix of wet weights for our samples
 
 ``` r
 wetw <- as.matrix(read.csv("POS.WETWEIGHT.csv", header=F, row.names=1))
-```
-
-    ## Warning in read.table(file = file, header = header, sep = sep, quote = quote, :
-    ## incomplete final line found by readTableHeader on 'POS.WETWEIGHT.csv'
-
-``` r
-wetw <- log10(wetw)
 knitr::kable(wetw)
 ```
 
-|                |        V2 |
-|:---------------|----------:|
-| MS122\_MA\_307 | 0.9590414 |
-| MS299\_HB\_38  | 1.0211893 |
-| MS423\_MB\_628 | 1.1461280 |
-| MS650\_HD\_346 | 1.1105897 |
+|                |   V2 |
+|:---------------|-----:|
+| MS122\_MA\_307 |  9.1 |
+| MS299\_HB\_38  | 10.5 |
+| MS423\_MB\_628 | 14.0 |
+| MS650\_HD\_346 | 12.9 |
 
 Perform the normalization
 
 ``` r
 wetw <- wetw[colnames(mtx), ]
-mtx <- log10(mtx)
-wetw.mean <- log10(mean(wetw))
-div.mean <- log10(mean(div))
-mtx.normalized <- t(apply(mtx, 1, function (x) x-log10(wetw)-log10(div)+wetw.mean+div.mean))
+mtx.normalized <- t(apply(mtx, 1, function (x) x*mean(wetw)*mean(div)/(wetw*div)))
+mtx.log <- log2(mtx.normalized)
 ```
 
 ## Downstream analysis
 
 Processed matrix with quantified lipid abundances can be used for
-downstream analysis. We will apply two classical approaches (PCA and
-PLS-DA) to analyze the sample-specific differences between human and
-macaque lipid profiles.
+downstream analysis. We will apply two classical multivariate approaches
+(PCA and PLS-DA) as well as univariate statistical methods to analyze
+the differences between human and macaque lipid profiles.
 
 ### Principal Component Analysis (PCA)
 
-PCA is multivariate technique that extremely useful for classification
+PCA is a multivariate technique that extremely useful for classification
 purpose. The key idea of the method is to project original matrix of
 lipid abundances into low dimensional space. To perform dimensionality
 reduction PCA computes the reduced set of uncorrelated variables named
@@ -568,7 +675,7 @@ identity matrix of size
 To calculate principal components we will use base R function `prcomp`
 
 ``` r
-pca <- prcomp(t(mtx.normalized), center = TRUE, scale. = TRUE)
+pca <- prcomp(t(mtx.log), center = TRUE, scale. = TRUE)
 ```
 
 To visualize relationships between samples in a new low dimensional
@@ -582,15 +689,15 @@ ggplot(data = pca.data, aes_string(x = "PC1", y = "PC2", color = "class", shape 
     theme_light()
 ```
 
-![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-32-1.png)<!-- -->
+![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-44-1.png)<!-- -->
 
 ### Partial Least-Squares Discriminant Analysis (PLS-DA)
 
 While both PCA and PLS-DA achieve dimensionality reduction computing the
-principal components, PLS-DA can be used rather for feature selection
-than for classification purpose. Mathematically, PLS-DA principal
-components can be obtained in a similar to PCA manner, as eigenvectors
-of a matrix of covariances between
+principal components, PLS-DA can be used rather for classification and
+feature selection than for clustering purpose. Mathematically, PLS-DA
+principal components can be obtained in a similar to PCA manner, as
+eigenvectors of a matrix of covariances between
 ![X](https://latex.codecogs.com/png.latex?X "X") and
 ![Y](https://latex.codecogs.com/png.latex?Y "Y"):
 
@@ -621,19 +728,10 @@ Run sPLS-DA with optimized parameters
 
 ``` r
 splsda.model <- splsda(X, Y, ncomp = 2, keepX = tune.splsda$choice.keepX)
-```
-
-    ## Warning in internal_wrapper.mint(X = X, Y = Y.mat, ncomp = ncomp, scale = scale, : At least one study has less than 5 samples, mean centering might
-    ##     not do as expected
-
-``` r
 plotIndiv(splsda.model, ind.names = FALSE, legend=TRUE, ellipse = TRUE)
 ```
 
-    ## Warning: It is deprecated to specify `guide = FALSE` to remove a guide. Please
-    ## use `guide = "none"` instead.
-
-![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-35-1.png)<!-- -->
+![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-47-1.png)<!-- -->
 
 A vector of feature contributions can be retrieved from the model in the
 following way
@@ -641,6 +739,93 @@ following way
 ``` r
 plsda.contributions <- selectVar(splsda.model, comp = 1)$value
 ```
+
+## Statistical analysis
+
+Univariate methods (e.g. t-test, Wilcoxon rank sum test, ANOVA) are
+especially useful for detecting differences in concentration between
+samples on the level of single molecules.
+
+As an illustrative example, we will apply Wilcoxon rank sum test (WRST)
+to the task of comparing human and macaque lipid abundances. In contrast
+to t-test, this test doesn’t assume that the data has a normal
+distribution.
+
+``` r
+stats <- apply(mtx.normalized, 1, function (x) wilcox.test(x[1:2], x[3:4])$p.value)
+```
+
+Given the small sample size of groups studied (two samples per group)
+the minimal raw p-value we can obtain with WRST is 0.33.
+
+``` r
+min(stats)
+```
+
+    ## [1] 0.3333333
+
+The one more important step when dealing with statistical testing of
+hundreds or thousands features is a multiple testing correction
+procedure. Setting a significance level to 0.05 one can found a 5% of
+features to be significant even they are not. So, if the 5000 lipids are
+tested, 250 lipids could be significant by chance. To avoid having large
+number of false positive results, raw p-value can be adjust using
+multiply testing correction methods (e.g. Bonferroni, Holm or FDR
+corrections).
+
+``` r
+p.val <- p.adjust(stats, method = 'fdr') 
+```
+
+The statistical testing often accompanied by `Fold Change` (FC)
+calculation. FC shows the magnitude and direction of change in lipid
+concentration between group studied.
+
+``` r
+lfc <- log2(rowMeans(mtx.normalized[,c(1,2)])) - log2(rowMeans(mtx.normalized[,c(3,4)]))
+```
+
+The code below creates a table with columns describing the mean
+concentrations across samples and log2(Fold Change) values obtained
+above. We will also specify the 2-fold FC cutoff for up- and
+downregulated features.
+
+``` r
+mean.abundance <- (log2(rowMeans(mtx.normalized[,c(1,2)])) + log2(rowMeans(mtx.normalized[,c(3,4)])))/2 
+ma.data <- as.data.frame(mean.abundance)
+ma.data$lfc <- lfc
+colnames(ma.data) <- c('MeanAbundance', 'Lfc')
+ma.data$Sig <- 'NS'
+ma.data$Sig[ma.data$Lfc > 1] <- 'Up'
+ma.data$Sig[ma.data$Lfc < -1] <- 'Down'
+```
+
+Explore the number of up- and downregulated features:
+
+``` r
+table(ma.data$Sig)
+```
+
+    ## 
+    ## Down   NS   Up 
+    ## 1290 2456  500
+
+Now the differences in lipid abundance between human and macaque groups
+of sample can be visualize using MA plot, where x-axis represents
+average abundance level and y-axis represents log2(Fold Change) values.
+
+``` r
+p <- ggplot(ma.data, aes(x = MeanAbundance, y = Lfc, color = Sig)) + 
+  geom_point() + 
+  geom_hline(yintercept = c(-1, 1), linetype = "dashed") +
+  scale_colour_manual(values=c("#1465AC", "darkgray", "#B31B21"))+
+  xlab('log2(Mean normalized abundance)') + ylab('log2(Fold Change)') +
+  theme_light()
+
+p
+```
+
+![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-55-1.png)<!-- -->
 
 ## Software used
 

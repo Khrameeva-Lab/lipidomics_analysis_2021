@@ -42,12 +42,12 @@ library(gridExtra)
 We will demonstrate the key concepts of LC-MS untargeted lipidomic analysis on the example of human and macaque lipidomic profiles from Dorsolateral Prefrontal Cortex. 
 Raw MS files (~1.87 GB) from this project converted into the .mzXML format can be downloaded into the current directory using the following code:
 ```{r}
-url <- "https://makarich.fbb.msu.ru/khrameeva/brainmap/sampledata.tar.gz"
-download.file(url, destfile = 'sampledata.tar.gz', method = "curl")
-untar('sampledata.tar.gz')
+#url <- "https://makarich.fbb.msu.ru/khrameeva/brainmap/sampledata.tar.gz"
+#download.file(url, destfile = 'sampledata.tar.gz', method = "curl")
+#untar('sampledata.tar.gz')
 ```
 
-For convenience, raw MS files located in the `sampledata/` folder are organized into two subfolders according to the species (2 files per species + blank measurements). The code below will create a table with sample metadata
+Raw MS files located in the `sampledata/` folder are organized into two subfolders according to the species (2 files per species + blank measurements). The code below will create a table with sample metadata
 ```{r}
 mzfiles <- list.files('sampledata/', recursive = TRUE, full.names = TRUE, pattern = '.mzXML')
 group <- unlist(lapply(strsplit(mzfiles,"/"), function (x) x[[3]]))
@@ -82,7 +82,7 @@ cwp <- CentWaveParam(peakwidth = c(9.5, 36),
                      integrate = 1, 
                      fitgauss = FALSE)
 ```
-It's highly recommended to specify `peakwidth` (minimum and maximum MS peak width in RT dimension) and `ppm`(width of region of interest  in the m/z dimension) parameters based on ion chromatograms for internal standards. 
+It's highly recommended to specify `peakwidth` (minimum and maximum MS peak width in RT dimension) and `ppm`(width of region of interest in the m/z dimension) parameters based on ion chromatograms for internal standards. 
 
 Once the parameters are set one can proceed to chromatographic peak detection using `findChromPeaks` function.
 ```{r, message=FALSE}
@@ -143,6 +143,7 @@ Please note that optimizing peak calling parameters with `optimizeXcmsSet` funct
 
 To perform the optimization just uncomment the code below. It will return the R script with optimized processing parameters.
 
+Set up default parameters for peak picking optimization procedure:
 ```{r}
 #peakpickingParameters <- getDefaultXcmsSetStartingParams('centWave')
 #peakpickingParameters$min_peakwidth = c(0,10)
@@ -150,6 +151,7 @@ To perform the optimization just uncomment the code below. It will return the R 
 #peakpickingParameters$ppm = c(0,10)
 ```
 
+Optimize peak picking parameters:
 ```{r}
 #resultPeakpicking <- optimizeXcmsSet(files = mzfiles, 
 #                                     params = peakpickingParameters, 
@@ -157,7 +159,10 @@ To perform the optimization just uncomment the code below. It will return the R 
 #                                     subdir = NULL)
 
 #optimizedXcmsSetObject <- resultPeakpicking$best_settings$xset
+```
 
+Optimize retention time correction and grouping parameters:
+```{r}
 #retcorGroupParameters <- getDefaultRetGroupStartingParams()
 #resultRetcorGroup <- optimizeRetGroup(xset = optimizedXcmsSetObject, 
 #                                      params = retcorGroupParameters,
@@ -168,12 +173,13 @@ To perform the optimization just uncomment the code below. It will return the R 
 #             resultRetcorGroup$best_settings, 1)
 ```
 
+
 ## Imputation of missing values
 Unfortunately, peak peaking algorithm may produces a sufficient numbers of NAs for those samples in which it wasn't able to identify MS peaks. We will try to impute missing chromatographic peaks within samples using `fillChromPeaks` function.
 ```{r}
 xset <- fillChromPeaks(xset)
 ```
-Please note that `fillChromPeaks` can not impute all the gaps in MS data. The remaining missing values will be further removed/imputed in the section "Filtering of peaks" below.
+Please note that `fillChromPeaks` may not impute all the gaps in MS data. The remaining missing values will be further removed/imputed in the section "Filtering of peaks" below.
 
 
 ## Data export
@@ -191,86 +197,156 @@ Change the column names of `mtx` matrix
 colnames(mtx) <- unlist(strsplit(colnames(mtx), split = '.mzXML'))
 ```
 
-To correctly normalize abundance matrix `mtx` further we will need the information about internal standards used in the experiment. The code below reads the example table containing TG(15:0-18:1-d7-15:0) standard description and extracts RT and m/z values. 
-```{r}
-standards <- read.csv("TG_standard.csv", header=T)
-std1.mz <- (standards[c(1),]$mzmin + standards[c(1),]$mzmax)/2
-std1.rtmin <- standards[c(1),]$rtmin 
-std1.rtmax <- standards[c(1),]$rtmax
+To correctly normalize abundance matrix `mtx` further we will need the information about internal standard used in the experiment. The code below will extract peaks corresponding to TG(15:0-18:1-d7-15:0).
 
-std2.mz <- (standards[c(2),]$mzmin + standards[c(2),]$mzmax)/2
-std2.rtmin <- standards[c(2),]$rtmin 
-std2.rtmax <- standards[c(2),]$rtmax
-
-knitr::kable(head(standards))
+```{r, message=FALSE}
+source("src/rt-mz.annotator.R") # load the annotator function
 ```
-Using the obtained RT and m/z values of standard, the corresponding peaks can be retrieved from the data
-```{r}
-eps <- 0.05
-peak1 <- grs[grs$mzmed < std1.mz+eps & grs$mzmed > std1.mz-eps & grs$rtmed < std1.rtmax & grs$rtmed > std1.rtmin, ]
-peak2 <- grs[grs$mzmed < std2.mz+eps & grs$mzmed > std2.mz-eps & grs$rtmed < std2.rtmax & grs$rtmed > std2.rtmin, ]
 
-std.peaks <- c(rownames(peak1), rownames(peak2))
-std.peaks
+Generate TAG that corresponds to the standard:
+```{r}
+std = generateTGL(15+18+15,1)
+std$FORMULA = 'C51H89D7O6' #change 7 H to 7 D
+std$EXACT_MASS = calcExactMass(std$FORMULA) # recalculate the exact mass using updated formula
+knitr::kable(std)
+```
+Using `annotateByMass` function we will find all the peaks in the data that matched internal standard by exact mass value and filter them based on the elution time. In this function adducts can be defined by `ions` parameter, by default the function uses H, Na, NH4, K and aNH4. We will specify ppm threshold for acceptable m/z deviation in `annotateByMass` to 20.
+
+```{r}
+std.ann = annotateByMass(data.frame(id=rownames(grs),rt=grs$rtmed,mz=grs$mzmed), std, ppm=20)
+std.ann = std.ann[std.ann$rt > 600, ] # Although we don't know the exact RT value we know that TAGs elute after 10 minutes
+knitr::kable(std.ann)
+```
+H-adduct looks suspicious (high ppm, different rt), so we can exclude it from analysis:
+```{r}
+std.ann = std.ann[std.ann$ppm < 5, ]
 ```
 
 Finally, compute the median abundances of peaks found within each sample. Those will come in handy for normalization procedure.
 ```{r}
-div <- apply(mtx[std.peaks, c(2:5)], 2, function (x) median(x,na.rm=T))
+div <- apply(mtx[std.ann$id, c(2:5)], 2, function (x) median(x, na.rm = T))
 ```
 
 ## Annotation
 Annotation is arguably the most tricky part of untargeted LS-MS analysis. Here we present a method to create annotation for lipid features obtained in the previous steps.
-```{r, message=FALSE}
-source("src/rt-mz.annotator.R")
-```
 
-Prepare the reduced version of `grs` table with a new column consisting of merged mz and rt values
-```{r}
-grs <- as.data.frame(grs)
-grs <- grs[rownames(mtx), ]
-grs.short <- dplyr::select(grs, mzmed, rtmed)
-grs.short$id <- paste(round(grs.short$mzmed, 3), round(grs.short$rtmed, 3), sep = '_')
-grs.short <- grs.short[,c(3,1,2)]
-colnames(grs.short) <- c('id', 'mz', 'rt')
-knitr::kable(head(grs.short))
-```
-`annotateByMass` function annotates lipid features by matching their exact mass against m/z values of existing lipids from LIPID MAPS database. Adducts can be defined by `ions` parameter, by default the function uses H, Na, NH4,K,NH4 + acetonitrile. Default ppm threshold in `annotateByMass` is 100, but it also can be changed with `ppm` parameter.
+To obtain the full annotation set we will again utilize `annotateByMass` function, but this time m/z values of peaks will be matched to exact masses of existing lipids from LIPID MAPS database.
 
 ```{r, message=FALSE}
-ann <- annotateByMass(grs.short, db = LMDB)
-dim(ann)
+ann <- annotateByMass(data.frame(id=rownames(grs),rt=grs$rtmed,mz=grs$mzmed), db = LMDB, ppm = 20)
+knitr::kable(head(ann))
+```
+Here `ppmd` is calculated as 
+
+![ppmd = (1 - \frac{MZ}{EM - Adduct}) \cdot 1e^6
+](https://render.githubusercontent.com/render/math?math=%5Cdisplaystyle+ppmd+%3D+%281+-+%5Cfrac%7BMZ%7D%7BEM+-+Adduct%7D%29+%5Ccdot+1e%5E6%0A)
+
+where $MZ$ is a peak m/z value, $EM$ is an exact mass of known lipid from LIPID MAPS database and $Adduct$ represents the adduct mass.
+
+Next we will explore the distribution of `ppmd` values from the annotation table:  
+```{r, message=FALSE}
+h = hist(ann$ppmd, 1000, main = 'ppmd distribution', xlab = 'ppmd')
+mode = which.max(h$counts)
+mode = h$breaks[mode]/2 + h$breaks[mode+1]/2
+abline(v = mode, col = 'red')
+```
+Most likely there is a m/z shift around -4 ppm (shown by red vertical line), it also corresponds well with `ppmd` of the internal standard.
+
+Display the value of m/z shift
+```{r}
+mode
 ```
 
-The function yields a table containing LM ID of annotated feature along with formula, systematic name, corresponding ppm/ppmd and delta values.
+Take only annotation within mode +- 10
 ```{r}
-grs.annotated <- filter(grs.short, id %in% unique(ann$id))
-grs.annotated <- tibble::rownames_to_column(grs.annotated, "xcmsID")
-grs.annotated <- full_join(grs.annotated[,c(1,2)], ann, by=c("id"="id"))
-knitr::kable(head(grs.annotated))
+ann = ann[ann$ppmd > (mode - 10) & ann$ppmd < (mode + 10), ]
 ```
+
+Check annotation uniqueness
+```{r}
+annotation.freq <- table(table(ann$id))
+print(paste(annotation.freq[1], "peaks have unique annotation"))
+print(paste(annotation.freq[2], "peaks are annotated with two lipids"))
+```
+
+Add two columns with lipid categories and classes to `ann` table
+```{r}
+ann$category = substr(ann$LM_ID,3,4)
+ann$class = substr(ann$LM_ID,3,6)
+```
+
+Display the number of lipids annotated uniquely on category level
+```{r}
+annc = unique(ann[,c('id','rt','mz','category')])
+annc.freq <- table(table(annc$id))
+print(paste(annc.freq[1], "lipids have unique annotation on category level"))
+```
+
+We will retain features with unique annotation to build rt-mz plot: 
+```{r}
+t = table(annc$id) # count the annotation variants for all features
+annc = annc[annc$id %in% names(t)[t==1],] # filter out all features with multiply annotation names
+cats = unique(annc$category) # get the list of lipid categories
+cols = setNames(RColorBrewer::brewer.pal(length(cats),'Set1'),cats) # set color palette
+annc <- annc[annc$rt > 7 & annc$rt < 1200, ] # specify the range of RT 
+plot(annc$rt,annc$mz,pch=16,col=cols[annc$category],xlab='RT', ylab='m/z', xlim = c(7, 1330), bty='n')
+legend('topright',pch=16,col=cols,legend=cats) 
+```
+
+Print the number of lipids annotated uniquely on class level
+```{r}
+annc <- unique(ann[,c('id','rt','mz','class')])
+annc.freq <- table(table(annc$id))
+print(paste(annc.freq[1], "lipids have unique annotation on class level"))
+```
+
 Keep annotated features only
 ```{r}
-mtx <- mtx[unique(grs.annotated$xcmsID),]
+mtx <- mtx[unique(ann$id),]
 ```
 
-Also one can try to perform annotation for specific lipid class only. We will illustrate such approach using a custom TAG generator that creates a table of triacylglycerols (TAG_10:0	- TAG_70:8) with corresponding lipid formula and exact masses.
 
+Also one can try to perform annotation for specific lipid class only. We will illustrate such approach using a custom TAG generator that creates a table of triacylglycerols (TAG(10:0)	- TAG(70:8)) with corresponding lipid formula and exact masses.
 ```{r}
-tags = generateTGL(10:70,0:8) # the generator is quite simple, some tags it mage are meaningless (like 10:8)
+tags = generateTGL(10:70,0:8) 
 electron.mass = 0.00054858
 knitr::kable(head(tags))
 ```
 
 We will use the same `annotateByMass` function as a before, but with previously generated TAG table instead of full LIPIDMAPS database.
 ```{r}
-ann2 = annotateByMass(grs.short,
+ann2 = annotateByMass(data.frame(id=rownames(grs),rt=grs$rtmed,mz=grs$mzmed),
                       tags,
-                      ions = c(NH4=calcExactMass('NH4')-electron.mass),
-                      ppm=10)
+                      ions = c(NH4=calcExactMass('NH4') - electron.mass),
+                      ppm=20)
 
 knitr::kable(head(ann2))
 ```
+
+`ann2` annotation table contains a number of peaks that have non-unique annotation. We will plot the rt-m/z scatter plot and highlight the area of correct TAGs by red rectangle
+```{r}
+plot(ann2$rt,ann2$mz, xlab = 'RT', ylab = 'm/z')
+rect(820, 700, 1050, 1000, border = 'red', col=NA)
+```
+
+Since the plot above showed that there are additional peaks in obtained TAG annotation table, we will try to exclude them using an approach based on grid-like pattern in rt-mz coordinates (please see the manuscript for the method description).
+```{r}
+nets <- lookForNets(ann2,rt.win=c(1,30)) # by default rt.win is in mins, we will change it to secs
+net.table <- sort(table(nets$start)) # count the number of features per net 
+start <- names(net.table)[length(names(net.table))] # get id of the biggest net
+tags = nets[!is.na(nets$start) & nets$start==as.numeric(start),] # select the biggest net
+plotNet(tags)
+```
+The net looks quite noisy, so we will plot it again, but with circle size based on value of `ppmd` deviation of peaks
+```{r}
+plot(tags$rt, tags$mz, cex = abs(tags$ppmd-mode)/6, xlab = 'RT', ylab = 'm/z')
+```
+
+Filter out the peaks with high `ppmd` deviation
+```{r}
+net <- plotNet(tags[abs(tags$ppmd-mode) < 5, ])
+```
+The net looks better, but there are still some peaks that pretends to be same lipid, so the filtering prosedure needs manual curation.
 
 ## Filtering of peaks
 We will perform feature filtering based on blank samples to retain all features for which the median concentration ratio between biological samples and blank samples is greater than 2.
@@ -297,7 +373,6 @@ points((med.MS[filter.blank]+med.blank[filter.blank])/2,
 abline(h=log10(2),col="#B20F25")
 ```
 
-
 The code below removes all features that possess more than 30% of NA across samples.
 ```{r, message=FALSE}
 th <- 0.3
@@ -312,29 +387,26 @@ mtx <- mtx.imp$ximp
 ```
 
 ## Normalization
-In order to make samples comparable to each other we will utilize sample-specific normalization by wet weight and internal standards.
+In order to make samples comparable to each other we will utilize sample-specific normalization by wet weight and internal standard.
 
 Load the matrix of wet weights for our samples
-```{r}
+```{r, warning=FALSE}
 wetw <- as.matrix(read.csv("POS.WETWEIGHT.csv", header=F, row.names=1))
-wetw <- log10(wetw)
 knitr::kable(wetw)
 ```
 
 Perform the normalization
 ```{r}
 wetw <- wetw[colnames(mtx), ]
-mtx <- log10(mtx)
-wetw.mean <- log10(mean(wetw))
-div.mean <- log10(mean(div))
-mtx.normalized <- t(apply(mtx, 1, function (x) x-log10(wetw)-log10(div)+wetw.mean+div.mean))
+mtx.normalized <- t(apply(mtx, 1, function (x) x*mean(wetw)*mean(div)/(wetw*div)))
+mtx.log <- log2(mtx.normalized)
 ```
 
 ## Downstream analysis
-Processed matrix with quantified lipid abundances can be used for downstream analysis. We will apply two classical approaches (PCA and PLS-DA) to analyze the sample-specific differences between human and macaque lipid profiles. 
+Processed matrix with quantified lipid abundances can be used for downstream analysis. We will apply two classical multivariate approaches (PCA and PLS-DA) as well as univariate statistical methods to analyze the differences between human and macaque lipid profiles. 
 
 ### Principal Component Analysis (PCA)
-PCA is multivariate technique that extremely useful for classification purpose. The key idea of the method is to project original matrix of lipid abundances into low dimensional space. To perform dimensionality reduction PCA computes the reduced set of uncorrelated variables named `Principal Components`. For a given matrix $X_{n \times m}$, where features are rows and samples are columns, principal component vectors can be defined by finding eigenvectors of the following sample covariance matrix $S$:
+PCA is a multivariate technique that extremely useful for classification purpose. The key idea of the method is to project original matrix of lipid abundances into low dimensional space. To perform dimensionality reduction PCA computes the reduced set of uncorrelated variables named `Principal Components`. For a given matrix $X_{n \times m}$, where features are rows and samples are columns, principal component vectors can be defined by finding eigenvectors of the following sample covariance matrix $S$:
 
 ![\begin{align*}
 S = \frac{1}{n-1} X^{T} C_n X
@@ -345,7 +417,7 @@ where $C_n = I_n - \frac{1}{n}1_{n} 1^{T}_{n}$ is a centering matrix, $I_n$ repr
 
 To calculate principal components we will use base R function `prcomp`
 ```{r, message=FALSE}
-pca <- prcomp(t(mtx.normalized), center = TRUE, scale. = TRUE)
+pca <- prcomp(t(mtx.log), center = TRUE, scale. = TRUE)
 ```
 
 To visualize relationships between samples in a new low dimensional space we will plot PC1 and PC2 against each other.
@@ -359,7 +431,7 @@ ggplot(data = pca.data, aes_string(x = "PC1", y = "PC2", color = "class", shape 
 ```
 
 ### Partial Least-Squares Discriminant Analysis (PLS-DA)
-While both PCA and PLS-DA achieve dimensionality reduction computing the principal components, PLS-DA can be used rather for feature selection than for classification purpose. Mathematically, PLS-DA principal components can be obtained in a similar to PCA manner, as eigenvectors of a matrix of covariances between $X$ and $Y$: 
+While both PCA and PLS-DA achieve dimensionality reduction computing the principal components, PLS-DA can be used rather for classification and feature selection than for clustering purpose. Mathematically, PLS-DA principal components can be obtained in a similar to PCA manner, as eigenvectors of a matrix of covariances between $X$ and $Y$: 
 
 ![\begin{align*}
 S = S_{xy} S_{yx} = \frac{1}{n-1} X^{T} C_n Y \times \frac{1}{n-1} Y^{T} C_n X = \frac{1}{(n-1)^2} X^{T} C_n Y Y^{T} C_n X
@@ -383,7 +455,7 @@ tune.splsda <- tune.splsda(X, Y, ncomp = 2, validation = 'loo', folds = 4,
 ```
 
 Run sPLS-DA with optimized parameters
-```{r, message=FALSE}
+```{r, message=FALSE, warning = FALSE}
 splsda.model <- splsda(X, Y, ncomp = 2, keepX = tune.splsda$choice.keepX)
 plotIndiv(splsda.model, ind.names = FALSE, legend=TRUE, ellipse = TRUE)
 ```
@@ -391,6 +463,59 @@ plotIndiv(splsda.model, ind.names = FALSE, legend=TRUE, ellipse = TRUE)
 A vector of feature contributions can be retrieved from the model in the following way
 ```{r, message=FALSE}
 plsda.contributions <- selectVar(splsda.model, comp = 1)$value
+```
+
+## Statistical analysis
+Univariate methods (e.g. t-test, Wilcoxon rank sum test, ANOVA) are especially useful for detecting differences in concentration between samples on the level of single molecules. 
+
+As an illustrative example, we will apply Wilcoxon rank sum test (WRST) to the task of comparing human and macaque lipid abundances. In contrast to t-test, this test doesn't assume that the data has a normal distribution. 
+ 
+```{r}
+stats <- apply(mtx.normalized, 1, function (x) wilcox.test(x[1:2], x[3:4])$p.value)
+```
+
+Given the small sample size of groups studied (two samples per group) the minimal raw p-value we can obtain with WRST is 0.33.
+```{r}
+min(stats)
+```
+
+The one more important step when dealing with statistical testing of hundreds or thousands features is a multiple testing correction procedure. Setting a significance level to 0.05 one can found a 5% of features to be significant even they are not. So, if the 5000 lipids are tested, 250 lipids could be significant by chance. To avoid having large number of false positive results, raw p-value can be adjust using multiply testing correction methods (e.g. Bonferroni, Holm or FDR corrections). 
+
+```{r}
+p.val <- p.adjust(stats, method = 'fdr') 
+```
+
+The statistical testing often accompanied by `Fold Change` (FC) calculation. FC shows the magnitude and direction of change in lipid concentration between group studied. 
+```{r}
+lfc <- log2(rowMeans(mtx.normalized[,c(1,2)])) - log2(rowMeans(mtx.normalized[,c(3,4)]))
+```
+
+The code below creates a table with columns describing the mean concentrations across samples and log2(Fold Change) values obtained above. We will also specify the 2-fold FC cutoff for up- and downregulated features.
+```{r}
+mean.abundance <- (log2(rowMeans(mtx.normalized[,c(1,2)])) + log2(rowMeans(mtx.normalized[,c(3,4)])))/2 
+ma.data <- as.data.frame(mean.abundance)
+ma.data$lfc <- lfc
+colnames(ma.data) <- c('MeanAbundance', 'Lfc')
+ma.data$Sig <- 'NS'
+ma.data$Sig[ma.data$Lfc > 1] <- 'Up'
+ma.data$Sig[ma.data$Lfc < -1] <- 'Down'
+```
+
+Explore the number of up- and downregulated features:
+```{r}
+table(ma.data$Sig)
+```
+
+Now the differences in lipid abundance between human and macaque groups of sample can be visualize using MA plot, where x-axis represents average abundance level and y-axis represents log2(Fold Change) values.
+```{r}
+p <- ggplot(ma.data, aes(x = MeanAbundance, y = Lfc, color = Sig)) + 
+  geom_point() + 
+  geom_hline(yintercept = c(-1, 1), linetype = "dashed") +
+  scale_colour_manual(values=c("#1465AC", "darkgray", "#B31B21"))+
+  xlab('log2(Mean normalized abundance)') + ylab('log2(Fold Change)') +
+  theme_light()
+
+p
 ```
 
 ## Software used

@@ -38,9 +38,8 @@ library(gridExtra)
 ## Data import
 
 We will demonstrate the key concepts of LC-MS untargeted lipidomic
-analysis on the example of human and macaque lipidomic profiles from
-Dorsolateral Prefrontal Cortex. Raw MS files (\~1.87 GB) from this
-project converted into the .mzXML format can be downloaded into the
+analysis using a test dataset. Raw MS files (\~1.87 GB) from this
+dataset converted into the .mzXML format can be downloaded into the
 current directory using the following code:
 
 ``` r
@@ -49,9 +48,10 @@ current directory using the following code:
 #untar('sampledata.tar.gz')
 ```
 
-Raw MS files located in the `sampledata/` folder are organized into two
-subfolders according to the species (2 files per species + blank
-measurements). The code below will create a table with sample metadata
+Raw MS files located in the `sampledata/` folder are organized into
+three subfolders according to the sample groups (2 files per group +
+blank measurement). The code below will create a table with sample
+metadata
 
 ``` r
 mzfiles <- list.files('sampledata/', recursive = TRUE, full.names = TRUE, pattern = '.mzXML')
@@ -66,10 +66,10 @@ knitr::kable(pd)
 | sample\_name   | sample\_group |
 |:---------------|:--------------|
 | Blank7\_B\_23  | blank         |
-| MS299\_HB\_38  | human         |
-| MS650\_HD\_346 | human         |
-| MS122\_MA\_307 | macaque       |
-| MS423\_MB\_628 | macaque       |
+| MS299\_HB\_38  | group1        |
+| MS650\_HD\_346 | group1        |
+| MS122\_MA\_307 | group2        |
+| MS423\_MB\_628 | group2        |
 
 Now .mzXML files can be imported into `MSnExp` object via `readMSData`
 function
@@ -160,9 +160,9 @@ par(mfrow=c(1,2),las=1)
 chr <- chromatogram(xset, rt = c(405, 435), mz = c(797.58, 797.63), aggregationFun = "max", adjustedRtime = F)
 chr.adj <- chromatogram(xset, rt = c(405, 435), mz = c(797.58, 797.63), aggregationFun = "max", adjustedRtime = T)
 plot(chr, peakType = "none", col=group_colors[xset$sample_group], main = "Before alignment")
-legend(426, 32000, legend=c("Blank", "Human", "Macaque"), col=group_colors, lty=1:1, cex=0.45)
+legend(426, 32000, legend=c("Blank", "Group1", "Group2"), col=group_colors, lty=1:1, cex=0.45)
 plot(chr.adj, peakType = "none", col=group_colors[xset$sample_group], main = "After alignment")
-legend(426, 32000, legend=c("Blank", "Human", "Macaque"), col=group_colors, lty=1:1, cex=0.45)
+legend(426, 32000, legend=c("Blank", "Group1", "Group2"), col=group_colors, lty=1:1, cex=0.45)
 ```
 
 ![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-8-1.png)<!-- -->
@@ -367,6 +367,14 @@ knitr::kable(head(ann))
 | 2     | FT00012 |   5.270351 | 125.0961 | H   | LMFA12000017 |    124.0888 | C8H12O  | 3E,5E-Octadien-2-one//6-Methyl-3E,5-heptadien-2-one                                                                                  | \-      |  0.435522 | 0.0000545 |  -0.435522 |
 | 11002 | FT00012 |   5.270351 | 125.0961 | Na  | LMFA05000111 |    102.1045 | C6H14O  | 3-Methylpentan-1-ol//Hexan-1-ol//Hexan-3S-ol//Hexan-2-ol//3-methyl-3-Pentanol//4-Methyl-pentan-1-ol                                  | FOH 6:0 | 19.285398 | 0.0024125 | -19.285398 |
 
+``` r
+table(ann$ion)
+```
+
+    ## 
+    ## aNH4    H    K   Na  NH4 
+    ## 9666 9941 7243 9040 9602
+
 Here `ppmd` is calculated as
 
 ![ppmd = (1 - )
@@ -388,7 +396,7 @@ mode = h$breaks[mode]/2 + h$breaks[mode+1]/2
 abline(v = mode, col = 'red')
 ```
 
-![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-22-1.png)<!-- -->
+![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-23-1.png)<!-- -->
 Most likely there is a m/z shift around -4 ppm (shown by red vertical
 line), it also corresponds well with `ppmd` of the internal standard.
 
@@ -445,12 +453,12 @@ t = table(annc$id) # count the annotation variants for all features
 annc = annc[annc$id %in% names(t)[t==1],] # filter out all features with multiply annotation names
 cats = unique(annc$category) # get the list of lipid categories
 cols = setNames(RColorBrewer::brewer.pal(length(cats),'Set1'),cats) # set color palette
-annc <- annc[annc$rt > 7 & annc$rt < 1200, ] # specify the range of RT 
-plot(annc$rt,annc$mz,pch=16,col=cols[annc$category],xlab='RT', ylab='m/z', xlim = c(7, 1330), bty='n')
+annc <- annc[annc$rt > 120 & annc$rt < 1200, ] # specify the range of RT 
+plot(annc$rt,annc$mz,pch=16,col=cols[annc$category],xlab='RT', ylab='m/z', xlim = c(120, 1330), bty='n')
 legend('topright',pch=16,col=cols,legend=cats) 
 ```
 
-![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-28-1.png)<!-- -->
+![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-29-1.png)<!-- -->
 
 Print the number of lipids annotated uniquely on class level
 
@@ -518,7 +526,7 @@ plot(ann2$rt,ann2$mz, xlab = 'RT', ylab = 'm/z')
 rect(820, 700, 1050, 1000, border = 'red', col=NA)
 ```
 
-![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-33-1.png)<!-- -->
+![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-34-1.png)<!-- -->
 
 Since the plot above showed that there are additional peaks in obtained
 TAG annotation table, we will try to exclude them using an approach
@@ -538,7 +546,7 @@ tags = nets[!is.na(nets$start) & nets$start==as.numeric(start),] # select the bi
 plotNet(tags)
 ```
 
-![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-34-1.png)<!-- -->
+![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-35-1.png)<!-- -->
 The net looks quite noisy, so we will plot it again, but with circle
 size based on value of `ppmd` deviation of peaks
 
@@ -546,7 +554,7 @@ size based on value of `ppmd` deviation of peaks
 plot(tags$rt, tags$mz, cex = abs(tags$ppmd-mode)/6, xlab = 'RT', ylab = 'm/z')
 ```
 
-![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-35-1.png)<!-- -->
+![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-36-1.png)<!-- -->
 
 Filter out the peaks with high `ppmd` deviation
 
@@ -554,7 +562,8 @@ Filter out the peaks with high `ppmd` deviation
 net <- plotNet(tags[abs(tags$ppmd-mode) < 5, ])
 ```
 
-![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-36-1.png)<!-- -->
+![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-37-1.png)<!-- -->
+
 The net looks better, but there are still some peaks that pretends to be
 same lipid, so the filtering prosedure needs manual curation.
 
@@ -589,7 +598,7 @@ points((med.MS[filter.blank]+med.blank[filter.blank])/2,
 abline(h=log10(2),col="#B20F25")
 ```
 
-![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-38-1.png)<!-- -->
+![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-39-1.png)<!-- -->
 
 The code below removes all features that possess more than 30% of NA
 across samples.
@@ -612,6 +621,9 @@ mtx.imp <- missForest(mtx)
     ##   missForest iteration 2 in progress...done!
     ##   missForest iteration 3 in progress...done!
     ##   missForest iteration 4 in progress...done!
+    ##   missForest iteration 5 in progress...done!
+    ##   missForest iteration 6 in progress...done!
+    ##   missForest iteration 7 in progress...done!
 
 ``` r
 mtx <- mtx.imp$ximp
@@ -649,7 +661,7 @@ mtx.log <- log2(mtx.normalized)
 Processed matrix with quantified lipid abundances can be used for
 downstream analysis. We will apply two classical multivariate approaches
 (PCA and PLS-DA) as well as univariate statistical methods to analyze
-the differences between human and macaque lipid profiles.
+the intergroup differences between lipid profiles.
 
 ### Principal Component Analysis (PCA)
 
@@ -689,7 +701,7 @@ ggplot(data = pca.data, aes_string(x = "PC1", y = "PC2", color = "class", shape 
     theme_light()
 ```
 
-![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-44-1.png)<!-- -->
+![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-45-1.png)<!-- -->
 
 ### Partial Least-Squares Discriminant Analysis (PLS-DA)
 
@@ -731,7 +743,7 @@ splsda.model <- splsda(X, Y, ncomp = 2, keepX = tune.splsda$choice.keepX)
 plotIndiv(splsda.model, ind.names = FALSE, legend=TRUE, ellipse = TRUE)
 ```
 
-![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-47-1.png)<!-- -->
+![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-48-1.png)<!-- -->
 
 A vector of feature contributions can be retrieved from the model in the
 following way
@@ -747,7 +759,7 @@ especially useful for detecting differences in concentration between
 samples on the level of single molecules.
 
 As an illustrative example, we will apply Wilcoxon rank sum test (WRST)
-to the task of comparing human and macaque lipid abundances. In contrast
+to the task of comparing Group1 and Group1 lipid abundances. In contrast
 to t-test, this test doesn’t assume that the data has a normal
 distribution.
 
@@ -808,11 +820,11 @@ table(ma.data$Sig)
 
     ## 
     ## Down   NS   Up 
-    ## 1290 2456  500
+    ## 1287 2458  501
 
-Now the differences in lipid abundance between human and macaque groups
-of sample can be visualize using MA plot, where x-axis represents
-average abundance level and y-axis represents log2(Fold Change) values.
+Now the differences in lipid abundance between Group1 and Group2 can be
+visualize using MA plot, where x-axis represents average abundance level
+and y-axis represents log2(Fold Change) values.
 
 ``` r
 p <- ggplot(ma.data, aes(x = MeanAbundance, y = Lfc, color = Sig)) + 
@@ -825,7 +837,7 @@ p <- ggplot(ma.data, aes(x = MeanAbundance, y = Lfc, color = Sig)) +
 p
 ```
 
-![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-55-1.png)<!-- -->
+![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-56-1.png)<!-- -->
 
 ## Software used
 

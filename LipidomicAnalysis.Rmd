@@ -39,15 +39,14 @@ library(gridExtra)
 ```
 
 ## Data import
-We will demonstrate the key concepts of LC-MS untargeted lipidomic analysis on the example of human and macaque lipidomic profiles from Dorsolateral Prefrontal Cortex. 
-Raw MS files (~1.87 GB) from this project converted into the .mzXML format can be downloaded into the current directory using the following code:
+We will demonstrate the key concepts of LC-MS untargeted lipidomic analysis using a test dataset. Raw MS files (~1.87 GB) from this dataset converted into the .mzXML format can be downloaded into the current directory using the following code:
 ```{r}
 #url <- "https://makarich.fbb.msu.ru/khrameeva/brainmap/sampledata.tar.gz"
 #download.file(url, destfile = 'sampledata.tar.gz', method = "curl")
 #untar('sampledata.tar.gz')
 ```
 
-Raw MS files located in the `sampledata/` folder are organized into two subfolders according to the species (2 files per species + blank measurements). The code below will create a table with sample metadata
+Raw MS files located in the `sampledata/` folder are organized into three subfolders according to the sample groups (2 files per group + blank measurement). The code below will create a table with sample metadata
 ```{r}
 mzfiles <- list.files('sampledata/', recursive = TRUE, full.names = TRUE, pattern = '.mzXML')
 group <- unlist(lapply(strsplit(mzfiles,"/"), function (x) x[[3]]))
@@ -115,9 +114,9 @@ par(mfrow=c(1,2),las=1)
 chr <- chromatogram(xset, rt = c(405, 435), mz = c(797.58, 797.63), aggregationFun = "max", adjustedRtime = F)
 chr.adj <- chromatogram(xset, rt = c(405, 435), mz = c(797.58, 797.63), aggregationFun = "max", adjustedRtime = T)
 plot(chr, peakType = "none", col=group_colors[xset$sample_group], main = "Before alignment")
-legend(426, 32000, legend=c("Blank", "Human", "Macaque"), col=group_colors, lty=1:1, cex=0.45)
+legend(426, 32000, legend=c("Blank", "Group1", "Group2"), col=group_colors, lty=1:1, cex=0.45)
 plot(chr.adj, peakType = "none", col=group_colors[xset$sample_group], main = "After alignment")
-legend(426, 32000, legend=c("Blank", "Human", "Macaque"), col=group_colors, lty=1:1, cex=0.45)
+legend(426, 32000, legend=c("Blank", "Group1", "Group2"), col=group_colors, lty=1:1, cex=0.45)
 ```
 
 ## Peak grouping
@@ -236,6 +235,10 @@ To obtain the full annotation set we will again utilize `annotateByMass` functio
 ann <- annotateByMass(data.frame(id=rownames(grs),rt=grs$rtmed,mz=grs$mzmed), db = LMDB, ppm = 20)
 knitr::kable(head(ann))
 ```
+```{r, message=FALSE}
+table(ann$ion)
+```
+
 Here `ppmd` is calculated as 
 
 ![ppmd = (1 - \frac{MZ}{EM - Adduct}) \cdot 1e^6
@@ -288,8 +291,8 @@ t = table(annc$id) # count the annotation variants for all features
 annc = annc[annc$id %in% names(t)[t==1],] # filter out all features with multiply annotation names
 cats = unique(annc$category) # get the list of lipid categories
 cols = setNames(RColorBrewer::brewer.pal(length(cats),'Set1'),cats) # set color palette
-annc <- annc[annc$rt > 7 & annc$rt < 1200, ] # specify the range of RT 
-plot(annc$rt,annc$mz,pch=16,col=cols[annc$category],xlab='RT', ylab='m/z', xlim = c(7, 1330), bty='n')
+annc <- annc[annc$rt > 120 & annc$rt < 1200, ] # specify the range of RT 
+plot(annc$rt,annc$mz,pch=16,col=cols[annc$category],xlab='RT', ylab='m/z', xlim = c(120, 1330), bty='n')
 legend('topright',pch=16,col=cols,legend=cats) 
 ```
 
@@ -346,6 +349,7 @@ Filter out the peaks with high `ppmd` deviation
 ```{r}
 net <- plotNet(tags[abs(tags$ppmd-mode) < 5, ])
 ```
+
 The net looks better, but there are still some peaks that pretends to be same lipid, so the filtering prosedure needs manual curation.
 
 ## Filtering of peaks
@@ -403,7 +407,7 @@ mtx.log <- log2(mtx.normalized)
 ```
 
 ## Downstream analysis
-Processed matrix with quantified lipid abundances can be used for downstream analysis. We will apply two classical multivariate approaches (PCA and PLS-DA) as well as univariate statistical methods to analyze the differences between human and macaque lipid profiles. 
+Processed matrix with quantified lipid abundances can be used for downstream analysis. We will apply two classical multivariate approaches (PCA and PLS-DA) as well as univariate statistical methods to analyze the intergroup differences between lipid profiles. 
 
 ### Principal Component Analysis (PCA)
 PCA is a multivariate technique that extremely useful for classification purpose. The key idea of the method is to project original matrix of lipid abundances into low dimensional space. To perform dimensionality reduction PCA computes the reduced set of uncorrelated variables named `Principal Components`. For a given matrix $X_{n \times m}$, where features are rows and samples are columns, principal component vectors can be defined by finding eigenvectors of the following sample covariance matrix $S$:
@@ -468,7 +472,7 @@ plsda.contributions <- selectVar(splsda.model, comp = 1)$value
 ## Statistical analysis
 Univariate methods (e.g. t-test, Wilcoxon rank sum test, ANOVA) are especially useful for detecting differences in concentration between samples on the level of single molecules. 
 
-As an illustrative example, we will apply Wilcoxon rank sum test (WRST) to the task of comparing human and macaque lipid abundances. In contrast to t-test, this test doesn't assume that the data has a normal distribution. 
+As an illustrative example, we will apply Wilcoxon rank sum test (WRST) to the task of comparing Group1 and Group1 lipid abundances. In contrast to t-test, this test doesn't assume that the data has a normal distribution. 
  
 ```{r}
 stats <- apply(mtx.normalized, 1, function (x) wilcox.test(x[1:2], x[3:4])$p.value)
@@ -506,7 +510,7 @@ Explore the number of up- and downregulated features:
 table(ma.data$Sig)
 ```
 
-Now the differences in lipid abundance between human and macaque groups of sample can be visualize using MA plot, where x-axis represents average abundance level and y-axis represents log2(Fold Change) values.
+Now the differences in lipid abundance between Group1 and Group2 can be visualize using MA plot, where x-axis represents average abundance level and y-axis represents log2(Fold Change) values.
 ```{r}
 p <- ggplot(ma.data, aes(x = MeanAbundance, y = Lfc, color = Sig)) + 
   geom_point() + 

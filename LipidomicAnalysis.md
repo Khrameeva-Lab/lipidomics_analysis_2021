@@ -12,12 +12,17 @@ described in the manuscript:
 
 -   Data importing
 
--   Lipid signal quantification (peak peaking, peak alignment, peak
-    grouping and abundance quantification)
+-   Lipid signal extraction (peak picking, peak alignment, peak
+    grouping)
 
 -   Filtering and normalization
 
 -   Visualization
+
+**Note:** normalization and statistical methods as well as preprocessing
+parameters cannot be universally applicable and should be chosen in each
+individual case based on experimental conditions, instrument
+characteristics and study purposes!
 
 ## Package import
 
@@ -33,6 +38,7 @@ library(dplyr)
 library(missForest)
 library(reshape2)
 library(gridExtra)
+library(SummarizedExperiment)
 ```
 
 ## Data import
@@ -281,7 +287,7 @@ knitr::kable(head(mtx))
 | FT00005 |           4420.6834 |           4915.5724 |            4860.1878 |            2665.9554 |           4412.18887 |
 | FT00006 |             32.2304 |           3396.0094 |            1792.0359 |             942.3421 |           3048.21657 |
 
-Change the column names of `mtx` matrix
+Change the column names of mtx matrix
 
 ``` r
 colnames(mtx) <- unlist(strsplit(colnames(mtx), split = '.mzXML'))
@@ -336,8 +342,8 @@ from analysis:
 std.ann = std.ann[std.ann$ppm < 5, ]
 ```
 
-Finally, compute the median abundances of peaks found within each
-sample. Those will come in handy for normalization procedure.
+Finally, compute the median intensity of peaks found within each sample.
+Those will come in handy for normalization procedure.
 
 ``` r
 div <- apply(mtx[std.ann$id, c(2:5)], 2, function (x) median(x, na.rm = T))
@@ -535,11 +541,6 @@ manuscript for the method description).
 
 ``` r
 nets <- lookForNets(ann2,rt.win=c(1,30)) # by default rt.win is in mins, we will change it to secs
-```
-
-    ##  1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99 100 101 102 103 104 105 106 107 108 109 110 111 112 113 114 115 116 117 118 119 120 121 122 123 124 125 126 127 128 129 130 131 132 133 134 135 136 137 138 139 140 141 142 143 144 145 146 147 148 149 150 151 152 153 154 155 156 157 158 159 160 161 162 163 164 165 166 167 168 169 170 171 172 173 174 175 176 177 178 179 180 181 182 183 184 185 186 187 188 189 190 191 192 193 194 195 196 197 198 199 200 201 202 203 204 205 206 207 208 209 210 211 212 213 214 215 216 217 218 219 220 221 222 223 224 225 226 227 228 229 230 231 232 233 234 235 236 237 238 239 240 241 242 243 244 245 246 247 248 249 250 251 252 253 254 255 256 257 258 259 260 261 262 263 264 265 266 267 268 269 270 271 272 273 274 275 276 277 278 279 280 281 282 283 284 285 286 287 288 289 290 291 292 293 294 295 296 297 298 299 300 301 302 303 304 305 306 307 308 309 310 311 312 313 314 315 316 317 318 319 320 321 322 323 324 325 326 327 328 329 330 331 332 333 334 335 336 337 338 339 340 341 342 343 344 345 346 347 348 349 350 351 352 353 354 355 356 357 358 359 360 361 362 363 364 365 366 367 368 369 370 371 372 373 374 375 376 377 378 379 380 381 382 383 384 385 386 387 388 389 390 391 392 393 394 395 396 397 398 399 400 401 402 403 404 405 406 407 408 409 410 411 412 413 414 415 416 417 418 419 420 421 422 423 424 425 426 427 428 429 430 431 432 433 434 435 436 437 438 439 440 441 442 443 444 445 446 447 448 449 450 451 452 453 454 455 456 457 458 459 460 461 462 463 464 465 466 467 468 469 470 471 472 473 474 475 476 477 478 479 480 481 482 483 484 485 486 487 488 489 490 491 492 493 494 495 496 497 498 499 500 501 502 503 504 505 506 507 508 509 510 511 512 513 514 515 516 517 518 519 520 521 522 523 524 525 526 527 528 529 530 531 532 533 534 535 536 537 538 539 540 541 542 543 544 545 546 547 548 549 550 551 552 553 554 555 556 557 558 559 560 561 562 563 564 565 566 567 568 569 570 571 572 573 574 575 576 577 578 579 580 581 582 583 584 585 586 587 588 589 590 591 592 593 594 595 596 597 598 599 600 601 602 603 604 605 606 607 608 609 610 611 612 613 614 615 616 617 618 619 620 621 622 623 624 625 626 627 628 629 630 631 632 633 634 635 636 637 638 639 640 641 642 643 644 645 646 647 648
-
-``` r
 net.table <- sort(table(nets$start)) # count the number of features per net 
 start <- names(net.table)[length(names(net.table))] # get id of the biggest net
 tags = nets[!is.na(nets$start) & nets$start==as.numeric(start),] # select the biggest net
@@ -565,7 +566,7 @@ net <- plotNet(tags[abs(tags$ppmd-mode) < 5, ])
 ![](LipidomicAnalysis_files/figure-gfm/unnamed-chunk-37-1.png)<!-- -->
 
 The net looks better, but there are still some peaks that pretends to be
-same lipid, so the filtering prosedure needs manual curation.
+same lipid, so the filtering procedure needs manual curation.
 
 ## Filtering of peaks
 
@@ -623,7 +624,6 @@ mtx.imp <- missForest(mtx)
     ##   missForest iteration 4 in progress...done!
     ##   missForest iteration 5 in progress...done!
     ##   missForest iteration 6 in progress...done!
-    ##   missForest iteration 7 in progress...done!
 
 ``` r
 mtx <- mtx.imp$ximp
@@ -653,7 +653,7 @@ Perform the normalization
 ``` r
 wetw <- wetw[colnames(mtx), ]
 mtx.normalized <- t(apply(mtx, 1, function (x) x*mean(wetw)*mean(div)/(wetw*div)))
-mtx.log <- log2(mtx.normalized)
+mtx.log <- log10(mtx.normalized)
 ```
 
 ## Downstream analysis
@@ -820,7 +820,7 @@ table(ma.data$Sig)
 
     ## 
     ## Down   NS   Up 
-    ## 1287 2458  501
+    ## 1288 2456  502
 
 Now the differences in lipid abundance between Group1 and Group2 can be
 visualize using MA plot, where x-axis represents average abundance level
@@ -861,64 +861,52 @@ sessionInfo()
     ## [8] methods   base     
     ## 
     ## other attached packages:
-    ##  [1] gridExtra_2.3       reshape2_1.4.4      missForest_1.4     
-    ##  [4] itertools_0.1-3     iterators_1.0.13    foreach_1.5.1      
-    ##  [7] randomForest_4.6-14 dplyr_1.0.7         mixOmics_6.14.1    
-    ## [10] lattice_0.20-44     MASS_7.3-54         IPO_1.16.0         
-    ## [13] CAMERA_1.46.0       rsm_2.10.2          DT_0.18            
-    ## [16] ggplot2_3.3.5       xcms_3.12.0         MSnbase_2.16.1     
-    ## [19] ProtGenerics_1.22.0 S4Vectors_0.28.1    mzR_2.24.1         
-    ## [22] Rcpp_1.0.7          BiocParallel_1.24.1 Biobase_2.50.0     
-    ## [25] BiocGenerics_0.36.1
+    ##  [1] SummarizedExperiment_1.20.0 GenomicRanges_1.42.0       
+    ##  [3] GenomeInfoDb_1.26.7         IRanges_2.24.1             
+    ##  [5] MatrixGenerics_1.2.1        matrixStats_0.60.1         
+    ##  [7] gridExtra_2.3               reshape2_1.4.4             
+    ##  [9] missForest_1.4              itertools_0.1-3            
+    ## [11] iterators_1.0.13            foreach_1.5.1              
+    ## [13] randomForest_4.6-14         dplyr_1.0.7                
+    ## [15] mixOmics_6.14.1             lattice_0.20-44            
+    ## [17] MASS_7.3-54                 IPO_1.16.0                 
+    ## [19] CAMERA_1.46.0               rsm_2.10.2                 
+    ## [21] DT_0.18                     ggplot2_3.3.5              
+    ## [23] xcms_3.12.0                 MSnbase_2.16.1             
+    ## [25] ProtGenerics_1.22.0         S4Vectors_0.28.1           
+    ## [27] mzR_2.24.1                  Rcpp_1.0.7                 
+    ## [29] BiocParallel_1.24.1         Biobase_2.50.0             
+    ## [31] BiocGenerics_0.36.1        
     ## 
     ## loaded via a namespace (and not attached):
-    ##  [1] colorspace_2.0-2            ellipsis_0.3.2             
-    ##  [3] htmlTable_2.2.1             corpcor_1.6.9              
-    ##  [5] XVector_0.30.0              GenomicRanges_1.42.0       
-    ##  [7] base64enc_0.1-3             rstudioapi_0.13            
-    ##  [9] farver_2.1.0                affyio_1.60.0              
-    ## [11] ggrepel_0.9.1               RSpectra_0.16-0            
-    ## [13] fansi_0.5.0                 codetools_0.2-18           
-    ## [15] splines_4.0.3               ncdf4_1.17                 
-    ## [17] doParallel_1.0.16           impute_1.64.0              
-    ## [19] robustbase_0.93-8           knitr_1.33                 
-    ## [21] Formula_1.2-4               cluster_2.1.2              
-    ## [23] vsn_3.58.0                  png_0.1-7                  
-    ## [25] graph_1.68.0                BiocManager_1.30.16        
-    ## [27] compiler_4.0.3              backports_1.2.1            
-    ## [29] assertthat_0.2.1            Matrix_1.3-4               
-    ## [31] limma_3.46.0                htmltools_0.5.1.1          
-    ## [33] tools_4.0.3                 igraph_1.2.6               
-    ## [35] gtable_0.3.0                glue_1.4.2                 
-    ## [37] GenomeInfoDbData_1.2.4      affy_1.68.0                
-    ## [39] RANN_2.6.1                  MALDIquant_1.20            
-    ## [41] vctrs_0.3.8                 preprocessCore_1.52.1      
-    ## [43] xfun_0.25                   stringr_1.4.0              
-    ## [45] lifecycle_1.0.0             XML_3.99-0.7               
-    ## [47] DEoptimR_1.0-9              zlibbioc_1.36.0            
-    ## [49] scales_1.1.1                pcaMethods_1.82.0          
-    ## [51] MatrixGenerics_1.2.1        SummarizedExperiment_1.20.0
-    ## [53] RBGL_1.66.0                 MassSpecWavelet_1.56.0     
-    ## [55] RColorBrewer_1.1-2          yaml_2.2.1                 
-    ## [57] rpart_4.1-15                latticeExtra_0.6-29        
-    ## [59] stringi_1.7.3               highr_0.9                  
-    ## [61] checkmate_2.0.0             GenomeInfoDb_1.26.7        
-    ## [63] rlang_0.4.11                pkgconfig_2.0.3            
-    ## [65] matrixStats_0.60.1          bitops_1.0-7               
-    ## [67] mzID_1.28.0                 evaluate_0.14              
-    ## [69] purrr_0.3.4                 labeling_0.4.2             
-    ## [71] htmlwidgets_1.5.3           tidyselect_1.1.1           
-    ## [73] plyr_1.8.6                  magrittr_2.0.1             
-    ## [75] R6_2.5.1                    IRanges_2.24.1             
-    ## [77] generics_0.1.0              Hmisc_4.5-0                
-    ## [79] DelayedArray_0.16.3         DBI_1.1.1                  
-    ## [81] pillar_1.6.2                foreign_0.8-81             
-    ## [83] withr_2.4.2                 MsCoreUtils_1.2.0          
-    ## [85] survival_3.2-13             RCurl_1.98-1.4             
-    ## [87] nnet_7.3-16                 tibble_3.1.3               
-    ## [89] crayon_1.4.1                rARPACK_0.11-0             
-    ## [91] utf8_1.2.2                  ellipse_0.4.2              
-    ## [93] rmarkdown_2.10              jpeg_0.1-9                 
-    ## [95] grid_4.0.3                  data.table_1.14.0          
-    ## [97] digest_0.6.27               tidyr_1.1.3                
-    ## [99] munsell_0.5.0
+    ##  [1] colorspace_2.0-2       ellipsis_0.3.2         htmlTable_2.2.1       
+    ##  [4] corpcor_1.6.9          XVector_0.30.0         base64enc_0.1-3       
+    ##  [7] rstudioapi_0.13        farver_2.1.0           affyio_1.60.0         
+    ## [10] ggrepel_0.9.1          RSpectra_0.16-0        fansi_0.5.0           
+    ## [13] codetools_0.2-18       splines_4.0.3          ncdf4_1.17            
+    ## [16] doParallel_1.0.16      impute_1.64.0          robustbase_0.93-8     
+    ## [19] knitr_1.33             Formula_1.2-4          cluster_2.1.2         
+    ## [22] vsn_3.58.0             png_0.1-7              graph_1.68.0          
+    ## [25] BiocManager_1.30.16    compiler_4.0.3         backports_1.2.1       
+    ## [28] assertthat_0.2.1       Matrix_1.3-4           limma_3.46.0          
+    ## [31] htmltools_0.5.1.1      tools_4.0.3            igraph_1.2.6          
+    ## [34] gtable_0.3.0           glue_1.4.2             GenomeInfoDbData_1.2.4
+    ## [37] affy_1.68.0            RANN_2.6.1             MALDIquant_1.20       
+    ## [40] vctrs_0.3.8            preprocessCore_1.52.1  xfun_0.25             
+    ## [43] stringr_1.4.0          lifecycle_1.0.0        XML_3.99-0.7          
+    ## [46] DEoptimR_1.0-9         zlibbioc_1.36.0        scales_1.1.1          
+    ## [49] pcaMethods_1.82.0      RBGL_1.66.0            MassSpecWavelet_1.56.0
+    ## [52] RColorBrewer_1.1-2     yaml_2.2.1             rpart_4.1-15          
+    ## [55] latticeExtra_0.6-29    stringi_1.7.3          highr_0.9             
+    ## [58] checkmate_2.0.0        rlang_0.4.11           pkgconfig_2.0.3       
+    ## [61] bitops_1.0-7           mzID_1.28.0            evaluate_0.14         
+    ## [64] purrr_0.3.4            labeling_0.4.2         htmlwidgets_1.5.3     
+    ## [67] tidyselect_1.1.1       plyr_1.8.6             magrittr_2.0.1        
+    ## [70] R6_2.5.1               generics_0.1.0         Hmisc_4.5-0           
+    ## [73] DelayedArray_0.16.3    DBI_1.1.1              pillar_1.6.2          
+    ## [76] foreign_0.8-81         withr_2.4.2            MsCoreUtils_1.2.0     
+    ## [79] survival_3.2-13        RCurl_1.98-1.4         nnet_7.3-16           
+    ## [82] tibble_3.1.3           crayon_1.4.1           rARPACK_0.11-0        
+    ## [85] utf8_1.2.2             ellipse_0.4.2          rmarkdown_2.10        
+    ## [88] jpeg_0.1-9             grid_4.0.3             data.table_1.14.0     
+    ## [91] digest_0.6.27          tidyr_1.1.3            munsell_0.5.0

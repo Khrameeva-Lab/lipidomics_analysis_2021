@@ -17,11 +17,13 @@ Here we present step-by-step guide to bioinformatic analysis of untargeted LS-MS
 
 * Data importing
 
-* Lipid signal quantification (peak peaking, peak alignment, peak grouping and abundance quantification)
+* Lipid signal extraction (peak picking, peak alignment, peak grouping)
 
 * Filtering and normalization
 
 * Visualization
+
+**Note:** normalization and statistical methods as well as preprocessing parameters cannot be universally applicable and should be chosen in each individual case based on experimental conditions, instrument characteristics and study purposes!
 
 
 ## Package import
@@ -36,6 +38,7 @@ library(dplyr)
 library(missForest)
 library(reshape2)
 library(gridExtra)
+library(SummarizedExperiment)
 ```
 
 ## Data import
@@ -84,6 +87,7 @@ cwp <- CentWaveParam(peakwidth = c(9.5, 36),
 It's highly recommended to specify `peakwidth` (minimum and maximum MS peak width in RT dimension) and `ppm`(width of region of interest in the m/z dimension) parameters based on ion chromatograms for internal standards. 
 
 Once the parameters are set one can proceed to chromatographic peak detection using `findChromPeaks` function.
+
 ```{r, message=FALSE}
 xset <- findChromPeaks(raw_data, param = cwp)
 ```
@@ -191,13 +195,12 @@ mtx <- featureValues(xset, method="maxint", value="into", filled=T)
 knitr::kable(head(mtx))
 ```
 
-Change the column names of `mtx` matrix
-```{r}
+Change the column names of mtx matrix
+```{r, message=FALSE}
 colnames(mtx) <- unlist(strsplit(colnames(mtx), split = '.mzXML'))
 ```
 
 To correctly normalize abundance matrix `mtx` further we will need the information about internal standard used in the experiment. The code below will extract peaks corresponding to TG(15:0-18:1-d7-15:0).
-
 ```{r, message=FALSE}
 source("src/rt-mz.annotator.R") # load the annotator function
 ```
@@ -221,7 +224,7 @@ H-adduct looks suspicious (high ppm, different rt), so we can exclude it from an
 std.ann = std.ann[std.ann$ppm < 5, ]
 ```
 
-Finally, compute the median abundances of peaks found within each sample. Those will come in handy for normalization procedure.
+Finally, compute the median intensity of peaks found within each sample. Those will come in handy for normalization procedure.
 ```{r}
 div <- apply(mtx[std.ann$id, c(2:5)], 2, function (x) median(x, na.rm = T))
 ```
@@ -230,11 +233,11 @@ div <- apply(mtx[std.ann$id, c(2:5)], 2, function (x) median(x, na.rm = T))
 Annotation is arguably the most tricky part of untargeted LS-MS analysis. Here we present a method to create annotation for lipid features obtained in the previous steps.
 
 To obtain the full annotation set we will again utilize `annotateByMass` function, but this time m/z values of peaks will be matched to exact masses of existing lipids from LIPID MAPS database.
-
 ```{r, message=FALSE}
 ann <- annotateByMass(data.frame(id=rownames(grs),rt=grs$rtmed,mz=grs$mzmed), db = LMDB, ppm = 20)
 knitr::kable(head(ann))
 ```
+
 ```{r, message=FALSE}
 table(ann$ion)
 ```
@@ -308,7 +311,6 @@ Keep annotated features only
 mtx <- mtx[unique(ann$id),]
 ```
 
-
 Also one can try to perform annotation for specific lipid class only. We will illustrate such approach using a custom TAG generator that creates a table of triacylglycerols (TAG(10:0)	- TAG(70:8)) with corresponding lipid formula and exact masses.
 ```{r}
 tags = generateTGL(10:70,0:8) 
@@ -350,7 +352,7 @@ Filter out the peaks with high `ppmd` deviation
 net <- plotNet(tags[abs(tags$ppmd-mode) < 5, ])
 ```
 
-The net looks better, but there are still some peaks that pretends to be same lipid, so the filtering prosedure needs manual curation.
+The net looks better, but there are still some peaks that pretends to be same lipid, so the filtering procedure needs manual curation.
 
 ## Filtering of peaks
 We will perform feature filtering based on blank samples to retain all features for which the median concentration ratio between biological samples and blank samples is greater than 2.
@@ -403,7 +405,7 @@ Perform the normalization
 ```{r}
 wetw <- wetw[colnames(mtx), ]
 mtx.normalized <- t(apply(mtx, 1, function (x) x*mean(wetw)*mean(div)/(wetw*div)))
-mtx.log <- log2(mtx.normalized)
+mtx.log <- log10(mtx.normalized)
 ```
 
 ## Downstream analysis

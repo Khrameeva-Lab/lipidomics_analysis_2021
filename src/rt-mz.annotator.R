@@ -200,7 +200,7 @@ lookForNets = function(res,steps=c(n=14.01565,k=2.01565),step.max.cnt=c(n=2,k=1)
   mz = res$mz
   for(n in names(steps)) res[[n]] = NA
   for(i in 1:(nrow(res)-1)){
-    cat('\r',i)
+    #cat('\r',i)
     for(s in names(steps)){
       for(sc in 1:step.max.cnt[s]){
         #find RT window
